@@ -94,8 +94,12 @@ fmt:
 vet:
 	$(GOVET) ./...
 
-# Lint (fmt + vet)
-lint: fmt vet
+# Run golangci-lint in Docker
+golangci-lint:
+	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:v2.8.0-alpine golangci-lint run ./...
+
+# Lint (fmt + vet + golangci-lint)
+lint: fmt vet golangci-lint
 
 # Update dependencies
 deps:
@@ -124,7 +128,8 @@ help:
 	@echo "  docker-push      - Build and push multi-arch Docker image"
 	@echo "  fmt              - Format code"
 	@echo "  vet              - Run go vet"
-	@echo "  lint             - Run fmt and vet"
+	@echo "  golangci-lint    - Run golangci-lint"
+	@echo "  lint             - Run fmt, vet, and golangci-lint"
 	@echo "  deps             - Update dependencies"
 	@echo "  version          - Show version info"
 	@echo "  help             - Show this help"

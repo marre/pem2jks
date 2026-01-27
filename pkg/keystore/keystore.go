@@ -259,9 +259,8 @@ func computeJKSIntegrityHash(data []byte, password string) []byte {
 
 // stringToUTF16BE converts a string to UTF-16 big-endian bytes
 func stringToUTF16BE(s string) []byte {
-	runes := []rune(s)
 	var result []byte
-	for _, r := range runes {
+	for _, r := range s {
 		if r <= 0xFFFF {
 			result = append(result, byte(r>>8), byte(r))
 		} else {
