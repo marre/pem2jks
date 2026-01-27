@@ -80,6 +80,10 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     needs: [lint, test, integration]
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -91,8 +95,8 @@ jobs:
 
       - name: Build
         env:
-          GOOS: linux
-          GOARCH: amd64
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           VERSION=${GITHUB_SHA::8}
           COMMIT=${GITHUB_SHA::8}
@@ -105,8 +109,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pem2jks-linux-amd64
-          path: pem2jks-linux-amd64
+          name: pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}
 
   docker:
     name: Docker Build
