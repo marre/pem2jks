@@ -1,4 +1,4 @@
-module github.com/marre/gojks
+module github.com/marre/pem2jks
 
 go 1.21
 
