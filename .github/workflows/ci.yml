@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pem2jks-linux-amd64
-          path: pem2jks-*
+          path: pem2jks-linux-amd64
 
   docker:
     name: Docker Build
