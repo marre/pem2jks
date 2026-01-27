@@ -73,11 +73,6 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Listing files:"
-          ls -la
-          echo "Listing cmd directory:"
-          ls -la cmd/
           VERSION=${GITHUB_SHA::8}
           COMMIT=${GITHUB_SHA::8}
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
