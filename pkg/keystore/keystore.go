@@ -1,0 +1,656 @@
+// Package keystore provides functionality to create Java KeyStore (JKS) and PKCS#12 keystores.
+package keystore
+
+import (
+	"bytes"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/x509"
+	"encoding/asn1"
+	"encoding/binary"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"software.sslmate.com/src/go-pkcs12"
+)
+
+const (
+	// JKS constants
+	jksMagicNumber       = 0xFEEDFEED
+	jksVersion           = 2
+	jksTagPrivateKey     = 1
+	jksTagTrustedCert    = 2
+	jksSignatureWhitener = "Mighty Aphrodite"
+)
+
+// Sun's proprietary key protection algorithm OID: 1.3.6.1.4.1.42.2.17.1.1
+var sunJKSAlgoOID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 42, 2, 17, 1, 1}
+
+// Entry represents a keystore entry
+type Entry interface {
+	isEntry()
+}
+
+// PrivateKeyEntry represents a private key with its certificate chain
+type PrivateKeyEntry struct {
+	Alias     string
+	Timestamp time.Time
+	PrivKey   []byte   // PKCS#8 encoded private key
+	CertChain [][]byte // DER encoded certificates
+}
+
+func (PrivateKeyEntry) isEntry() {}
+
+// TrustedCertEntry represents a trusted certificate
+type TrustedCertEntry struct {
+	Alias     string
+	Timestamp time.Time
+	Cert      []byte // DER encoded certificate
+}
+
+func (TrustedCertEntry) isEntry() {}
+
+// JKS represents a JKS keystore
+type JKS struct {
+	Entries []Entry
+}
+
+// NewJKS creates a new empty JKS keystore
+func NewJKS() *JKS {
+	return &JKS{
+		Entries: make([]Entry, 0),
+	}
+}
+
+// AddPrivateKey adds a private key entry with its certificate chain
+func (ks *JKS) AddPrivateKey(alias string, pkcs8Key []byte, certChain [][]byte) error {
+	if alias == "" {
+		return errors.New("alias cannot be empty")
+	}
+	if len(pkcs8Key) == 0 {
+		return errors.New("private key cannot be empty")
+	}
+	if len(certChain) == 0 {
+		return errors.New("certificate chain cannot be empty")
+	}
+
+	// Validate certificates
+	for i, certDER := range certChain {
+		if _, err := x509.ParseCertificate(certDER); err != nil {
+			return fmt.Errorf("invalid certificate at index %d: %w", i, err)
+		}
+	}
+
+	ks.Entries = append(ks.Entries, PrivateKeyEntry{
+		Alias:     strings.ToLower(alias),
+		Timestamp: time.Now(),
+		PrivKey:   pkcs8Key,
+		CertChain: certChain,
+	})
+	return nil
+}
+
+// AddTrustedCert adds a trusted certificate entry
+func (ks *JKS) AddTrustedCert(alias string, certDER []byte) error {
+	if alias == "" {
+		return errors.New("alias cannot be empty")
+	}
+	if len(certDER) == 0 {
+		return errors.New("certificate cannot be empty")
+	}
+
+	// Validate certificate
+	if _, err := x509.ParseCertificate(certDER); err != nil {
+		return fmt.Errorf("invalid certificate: %w", err)
+	}
+
+	ks.Entries = append(ks.Entries, TrustedCertEntry{
+		Alias:     strings.ToLower(alias),
+		Timestamp: time.Now(),
+		Cert:      certDER,
+	})
+	return nil
+}
+
+// Marshal serializes the keystore to JKS format
+func (ks *JKS) Marshal(password string) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Write header
+	if err := binary.Write(&buf, binary.BigEndian, uint32(jksMagicNumber)); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint32(jksVersion)); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(ks.Entries))); err != nil {
+		return nil, err
+	}
+
+	// Write entries
+	for _, entry := range ks.Entries {
+		switch e := entry.(type) {
+		case PrivateKeyEntry:
+			if err := ks.writePrivateKeyEntry(&buf, e, password); err != nil {
+				return nil, err
+			}
+		case TrustedCertEntry:
+			if err := ks.writeTrustedCertEntry(&buf, e); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Calculate and append integrity hash
+	data := buf.Bytes()
+	hash := computeJKSIntegrityHash(data, password)
+	buf.Write(hash)
+
+	return buf.Bytes(), nil
+}
+
+func (ks *JKS) writePrivateKeyEntry(w io.Writer, entry PrivateKeyEntry, password string) error {
+	// Tag
+	if err := binary.Write(w, binary.BigEndian, uint32(jksTagPrivateKey)); err != nil {
+		return err
+	}
+
+	// Alias
+	if err := writeUTF(w, entry.Alias); err != nil {
+		return err
+	}
+
+	// Timestamp (milliseconds since epoch)
+	if err := binary.Write(w, binary.BigEndian, entry.Timestamp.UnixMilli()); err != nil {
+		return err
+	}
+
+	// Encrypt and write private key
+	encryptedKey, err := encryptJKSPrivateKey(entry.PrivKey, password)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+	encapsulated, err := encapsulatePrivateKey(encryptedKey)
+	if err != nil {
+		return fmt.Errorf("failed to encapsulate private key: %w", err)
+	}
+	if err := writeBytes(w, encapsulated); err != nil {
+		return err
+	}
+
+	// Certificate chain
+	if err := binary.Write(w, binary.BigEndian, uint32(len(entry.CertChain))); err != nil {
+		return err
+	}
+	for _, cert := range entry.CertChain {
+		if err := writeUTF(w, "X.509"); err != nil {
+			return err
+		}
+		if err := writeBytes(w, cert); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (ks *JKS) writeTrustedCertEntry(w io.Writer, entry TrustedCertEntry) error {
+	// Tag
+	if err := binary.Write(w, binary.BigEndian, uint32(jksTagTrustedCert)); err != nil {
+		return err
+	}
+
+	// Alias
+	if err := writeUTF(w, entry.Alias); err != nil {
+		return err
+	}
+
+	// Timestamp
+	if err := binary.Write(w, binary.BigEndian, entry.Timestamp.UnixMilli()); err != nil {
+		return err
+	}
+
+	// Certificate type
+	if err := writeUTF(w, "X.509"); err != nil {
+		return err
+	}
+
+	// Certificate data
+	if err := writeBytes(w, entry.Cert); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// writeUTF writes a string in Java's modified UTF-8 format
+func writeUTF(w io.Writer, s string) error {
+	data := []byte(s)
+	if err := binary.Write(w, binary.BigEndian, uint16(len(data))); err != nil {
+		return err
+	}
+	_, err := w.Write(data)
+	return err
+}
+
+// writeBytes writes a length-prefixed byte array
+func writeBytes(w io.Writer, data []byte) error {
+	if err := binary.Write(w, binary.BigEndian, uint32(len(data))); err != nil {
+		return err
+	}
+	_, err := w.Write(data)
+	return err
+}
+
+// computeJKSIntegrityHash computes the SHA1 hash for keystore integrity
+func computeJKSIntegrityHash(data []byte, password string) []byte {
+	passwordUTF16 := stringToUTF16BE(password)
+
+	h := sha1.New()
+	h.Write(passwordUTF16)
+	h.Write([]byte(jksSignatureWhitener)) // UTF-8, not UTF-16BE!
+	h.Write(data)
+	return h.Sum(nil)
+}
+
+// stringToUTF16BE converts a string to UTF-16 big-endian bytes
+func stringToUTF16BE(s string) []byte {
+	runes := []rune(s)
+	var result []byte
+	for _, r := range runes {
+		if r <= 0xFFFF {
+			result = append(result, byte(r>>8), byte(r))
+		} else {
+			r -= 0x10000
+			high := uint16(0xD800 + (r >> 10))
+			low := uint16(0xDC00 + (r & 0x3FF))
+			result = append(result, byte(high>>8), byte(high))
+			result = append(result, byte(low>>8), byte(low))
+		}
+	}
+	return result
+}
+
+// encryptJKSPrivateKey encrypts a PKCS#8 private key using JKS proprietary algorithm
+func encryptJKSPrivateKey(pkcs8Key []byte, password string) ([]byte, error) {
+	passwordBytes := stringToUTF16BE(password)
+
+	// Generate random 20-byte IV
+	iv := make([]byte, 20)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, err
+	}
+
+	// XOR key with keystream
+	keystream := jksKeystream(iv, passwordBytes)
+	encrypted := make([]byte, len(pkcs8Key))
+	for i, b := range pkcs8Key {
+		encrypted[i] = b ^ keystream[i]
+	}
+
+	// Calculate integrity check: SHA1(password + plaintext)
+	h := sha1.New()
+	h.Write(passwordBytes)
+	h.Write(pkcs8Key)
+	check := h.Sum(nil)
+
+	// Result: IV + encrypted_data + check
+	result := make([]byte, 0, 20+len(encrypted)+20)
+	result = append(result, iv...)
+	result = append(result, encrypted...)
+	result = append(result, check...)
+
+	return result, nil
+}
+
+// jksKeystream generates a keystream for JKS private key encryption
+func jksKeystream(iv, password []byte) []byte {
+	var keystream []byte
+	cur := iv
+	for len(keystream) < 10000 {
+		h := sha1.New()
+		h.Write(password)
+		h.Write(cur)
+		cur = h.Sum(nil)
+		keystream = append(keystream, cur...)
+	}
+	return keystream
+}
+
+// encapsulatePrivateKey wraps the encrypted key in PKCS#8 EncryptedPrivateKeyInfo
+func encapsulatePrivateKey(encryptedKey []byte) ([]byte, error) {
+	algoID := struct {
+		Algorithm  asn1.ObjectIdentifier
+		Parameters asn1.RawValue
+	}{
+		Algorithm:  sunJKSAlgoOID,
+		Parameters: asn1.RawValue{Tag: asn1.TagNull, Bytes: []byte{}},
+	}
+
+	epki := struct {
+		Algorithm     asn1.RawValue
+		EncryptedData []byte
+	}{}
+
+	algoBytes, err := asn1.Marshal(algoID)
+	if err != nil {
+		return nil, err
+	}
+	epki.Algorithm = asn1.RawValue{FullBytes: algoBytes}
+	epki.EncryptedData = encryptedKey
+
+	return asn1.Marshal(epki)
+}
+
+// ParsePEMCertificates parses one or more PEM-encoded certificates
+func ParsePEMCertificates(pemData []byte) ([][]byte, error) {
+	var certs [][]byte
+	for len(pemData) > 0 {
+		var block *pem.Block
+		block, pemData = pem.Decode(pemData)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			return nil, fmt.Errorf("invalid certificate: %w", err)
+		}
+		certs = append(certs, block.Bytes)
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("no certificates found in PEM data")
+	}
+	return certs, nil
+}
+
+// ParsePEMPrivateKey parses a PEM-encoded private key and returns PKCS#8 DER
+func ParsePEMPrivateKey(pemData []byte) ([]byte, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, errors.New("no PEM data found")
+	}
+
+	switch block.Type {
+	case "PRIVATE KEY":
+		return block.Bytes, nil
+
+	case "RSA PRIVATE KEY":
+		key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse RSA private key: %w", err)
+		}
+		pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal to PKCS#8: %w", err)
+		}
+		return pkcs8, nil
+
+	case "EC PRIVATE KEY":
+		key, err := x509.ParseECPrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse EC private key: %w", err)
+		}
+		pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal to PKCS#8: %w", err)
+		}
+		return pkcs8, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported private key type: %s", block.Type)
+	}
+}
+
+// parsePEMPrivateKeyRaw parses a PEM private key and returns the raw key object
+func parsePEMPrivateKeyRaw(pemData []byte) (interface{}, error) {
+	pkcs8Data, err := ParsePEMPrivateKey(pemData)
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParsePKCS8PrivateKey(pkcs8Data)
+}
+
+// CreateJKSFromPEM creates a JKS keystore from PEM data
+func CreateJKSFromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
+	ks := NewJKS()
+
+	// Parse main certificate(s)
+	var certChain [][]byte
+	if len(certPEM) > 0 {
+		var err error
+		certChain, err = ParsePEMCertificates(certPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse certificate: %w", err)
+		}
+	}
+
+	// If we have a private key, add as private key entry
+	if len(keyPEM) > 0 {
+		if len(certChain) == 0 {
+			return nil, errors.New("private key provided but no certificate")
+		}
+		pkcs8Key, err := ParsePEMPrivateKey(keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+		if err := ks.AddPrivateKey(alias, pkcs8Key, certChain); err != nil {
+			return nil, fmt.Errorf("failed to add private key entry: %w", err)
+		}
+	} else if len(certChain) > 0 {
+		for i, cert := range certChain {
+			certAlias := alias
+			if i > 0 {
+				certAlias = fmt.Sprintf("%s-%d", alias, i)
+			}
+			if err := ks.AddTrustedCert(certAlias, cert); err != nil {
+				return nil, fmt.Errorf("failed to add trusted cert: %w", err)
+			}
+		}
+	}
+
+	// Add CA certificates as trusted certs
+	if len(caPEM) > 0 {
+		caCerts, err := ParsePEMCertificates(caPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse CA certificates: %w", err)
+		}
+		for i, caCert := range caCerts {
+			caAlias := "ca"
+			if i > 0 {
+				caAlias = fmt.Sprintf("ca-%d", i)
+			}
+			if err := ks.AddTrustedCert(caAlias, caCert); err != nil {
+				return nil, fmt.Errorf("failed to add CA certificate: %w", err)
+			}
+		}
+	}
+
+	if len(ks.Entries) == 0 {
+		return nil, errors.New("no entries to add to keystore")
+	}
+
+	return ks.Marshal(password)
+}
+
+// PKCS12KeyStore represents a PKCS#12 keystore
+type PKCS12KeyStore struct {
+	PrivateKey   interface{}
+	Certificate  *x509.Certificate
+	CACerts      []*x509.Certificate
+	TrustedCerts []*x509.Certificate
+}
+
+// NewPKCS12 creates a new empty PKCS12KeyStore
+func NewPKCS12() *PKCS12KeyStore {
+	return &PKCS12KeyStore{}
+}
+
+// SetPrivateKey sets the private key and its certificate
+func (ks *PKCS12KeyStore) SetPrivateKey(key interface{}, cert *x509.Certificate) {
+	ks.PrivateKey = key
+	ks.Certificate = cert
+}
+
+// AddCACert adds a CA certificate to the chain
+func (ks *PKCS12KeyStore) AddCACert(cert *x509.Certificate) {
+	ks.CACerts = append(ks.CACerts, cert)
+}
+
+// AddTrustedCert adds a trusted certificate (for truststores)
+func (ks *PKCS12KeyStore) AddTrustedCert(cert *x509.Certificate) {
+	ks.TrustedCerts = append(ks.TrustedCerts, cert)
+}
+
+// Marshal serializes the keystore to PKCS#12 format
+func (ks *PKCS12KeyStore) Marshal(password string) ([]byte, error) {
+	if ks.PrivateKey != nil {
+		return pkcs12.Modern.Encode(ks.PrivateKey, ks.Certificate, ks.CACerts, password)
+	}
+
+	if len(ks.TrustedCerts) == 0 && len(ks.CACerts) == 0 {
+		return nil, errors.New("no certificates to encode")
+	}
+
+	allCerts := append(ks.TrustedCerts, ks.CACerts...)
+	return pkcs12.Modern.EncodeTrustStore(allCerts, password)
+}
+
+// MarshalLegacy serializes the keystore to PKCS#12 format using legacy algorithms
+func (ks *PKCS12KeyStore) MarshalLegacy(password string) ([]byte, error) {
+	if ks.PrivateKey != nil {
+		return pkcs12.Legacy.Encode(ks.PrivateKey, ks.Certificate, ks.CACerts, password)
+	}
+
+	if len(ks.TrustedCerts) == 0 && len(ks.CACerts) == 0 {
+		return nil, errors.New("no certificates to encode")
+	}
+
+	allCerts := append(ks.TrustedCerts, ks.CACerts...)
+	return pkcs12.Legacy.EncodeTrustStore(allCerts, password)
+}
+
+// CreatePKCS12FromPEM creates a PKCS#12 keystore from PEM data
+func CreatePKCS12FromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
+	ks := NewPKCS12()
+
+	var certChain []*x509.Certificate
+	if len(certPEM) > 0 {
+		certs, err := ParsePEMCertificates(certPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse certificate: %w", err)
+		}
+		for _, certDER := range certs {
+			cert, err := x509.ParseCertificate(certDER)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse certificate: %w", err)
+			}
+			certChain = append(certChain, cert)
+		}
+	}
+
+	if len(keyPEM) > 0 {
+		if len(certChain) == 0 {
+			return nil, errors.New("private key provided but no certificate")
+		}
+
+		key, err := parsePEMPrivateKeyRaw(keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+
+		ks.SetPrivateKey(key, certChain[0])
+		for _, caCert := range certChain[1:] {
+			ks.AddCACert(caCert)
+		}
+	} else if len(certChain) > 0 {
+		for _, cert := range certChain {
+			ks.AddTrustedCert(cert)
+		}
+	}
+
+	if len(caPEM) > 0 {
+		caCerts, err := ParsePEMCertificates(caPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse CA certificates: %w", err)
+		}
+		for _, certDER := range caCerts {
+			cert, err := x509.ParseCertificate(certDER)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+			}
+			if ks.PrivateKey != nil {
+				ks.AddCACert(cert)
+			} else {
+				ks.AddTrustedCert(cert)
+			}
+		}
+	}
+
+	return ks.Marshal(password)
+}
+
+// CreatePKCS12FromPEMLegacy creates a PKCS#12 keystore using legacy algorithms
+func CreatePKCS12FromPEMLegacy(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
+	ks := NewPKCS12()
+
+	var certChain []*x509.Certificate
+	if len(certPEM) > 0 {
+		certs, err := ParsePEMCertificates(certPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse certificate: %w", err)
+		}
+		for _, certDER := range certs {
+			cert, err := x509.ParseCertificate(certDER)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse certificate: %w", err)
+			}
+			certChain = append(certChain, cert)
+		}
+	}
+
+	if len(keyPEM) > 0 {
+		if len(certChain) == 0 {
+			return nil, errors.New("private key provided but no certificate")
+		}
+
+		key, err := parsePEMPrivateKeyRaw(keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+
+		ks.SetPrivateKey(key, certChain[0])
+		for _, caCert := range certChain[1:] {
+			ks.AddCACert(caCert)
+		}
+	} else if len(certChain) > 0 {
+		for _, cert := range certChain {
+			ks.AddTrustedCert(cert)
+		}
+	}
+
+	if len(caPEM) > 0 {
+		caCerts, err := ParsePEMCertificates(caPEM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse CA certificates: %w", err)
+		}
+		for _, certDER := range caCerts {
+			cert, err := x509.ParseCertificate(certDER)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+			}
+			if ks.PrivateKey != nil {
+				ks.AddCACert(cert)
+			} else {
+				ks.AddTrustedCert(cert)
+			}
+		}
+	}
+
+	return ks.MarshalLegacy(password)
+}

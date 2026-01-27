@@ -1,0 +1,39 @@
+# Binaries
+bin/
+pem2jks
+
+# Test artifacts
+testdata/*.crt
+testdata/*.key
+testdata/*.pem
+testdata/*.jks
+testdata/*.p12
+testdata/*.csr
+testdata/*.srl
+testdata/*.class
+
+# Legacy test artifacts in root
+*.crt
+*.key
+*.pem
+*.jks
+*.p12
+*.csr
+*.srl
+*.class
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.out
+coverage.html
+

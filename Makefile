@@ -1,0 +1,107 @@
+.PHONY: build test clean docker install test-integration generate-certs fmt vet lint all
+
+# Binary name
+BINARY_NAME := pem2jks
+BINARY_PATH := bin/$(BINARY_NAME)
+
+# Version information
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Build flags
+LDFLAGS := -s -w \
+	-X main.Version=$(VERSION) \
+	-X main.GitCommit=$(COMMIT) \
+	-X main.BuildDate=$(DATE)
+
+# Go parameters
+GOCMD   := go
+GOBUILD := $(GOCMD) build
+GOTEST  := $(GOCMD) test
+GOFMT   := $(GOCMD) fmt
+GOVET   := $(GOCMD) vet
+GOMOD   := $(GOCMD) mod
+
+# Default target
+all: lint test build
+
+# Build the binary
+build:
+	@mkdir -p bin
+	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/pem2jks
+
+# Build static binary (for containers)
+static:
+	@mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/pem2jks
+
+# Run unit tests
+test:
+	$(GOTEST) -v ./...
+
+# Run integration tests
+test-integration: build generate-certs
+	@chmod +x scripts/integration-test.sh
+	./scripts/integration-test.sh
+
+# Generate test certificates
+generate-certs:
+	@chmod +x scripts/generate-certs.sh
+	./scripts/generate-certs.sh
+
+# Install binary to GOPATH/bin
+install:
+	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOPATH)/bin/$(BINARY_NAME) ./cmd/pem2jks
+
+# Clean build artifacts
+clean:
+	rm -rf bin/
+	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
+	rm -f testdata/VerifyKeystore.class
+
+# Build Docker image
+docker:
+	docker build -t $(BINARY_NAME):$(VERSION) .
+	docker tag $(BINARY_NAME):$(VERSION) $(BINARY_NAME):latest
+
+# Format code
+fmt:
+	$(GOFMT) ./...
+
+# Run vet
+vet:
+	$(GOVET) ./...
+
+# Lint (fmt + vet)
+lint: fmt vet
+
+# Update dependencies
+deps:
+	$(GOMOD) download
+	$(GOMOD) tidy
+
+# Show version info that will be embedded
+version:
+	@echo "Version: $(VERSION)"
+	@echo "Commit:  $(COMMIT)"
+	@echo "Date:    $(DATE)"
+
+# Help
+help:
+	@echo "Available targets:"
+	@echo "  all              - Run lint, test, and build"
+	@echo "  build            - Build the binary to bin/"
+	@echo "  static           - Build static binary for containers"
+	@echo "  test             - Run unit tests"
+	@echo "  test-integration - Run integration tests"
+	@echo "  generate-certs   - Generate test certificates"
+	@echo "  install          - Install to GOPATH/bin"
+	@echo "  clean            - Remove build artifacts"
+	@echo "  docker           - Build Docker image"
+	@echo "  fmt              - Format code"
+	@echo "  vet              - Run go vet"
+	@echo "  lint             - Run fmt and vet"
+	@echo "  deps             - Update dependencies"
+	@echo "  version          - Show version info"
+	@echo "  help             - Show this help"

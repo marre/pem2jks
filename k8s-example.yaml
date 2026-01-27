@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: java-app-with-jks
+  annotations:
+    description: |
+      Example pod that uses pem2jks as an init container to convert
+      cert-manager PEM certificates to JKS format for a Java application.
+spec:
+  initContainers:
+  - name: cert-converter
+    image: ghcr.io/marre/pem2jks:latest
+    args:
+      - -cert=/certs/tls.crt
+      - -key=/certs/tls.key
+      - -ca=/certs/ca.crt
+      - -alias=server
+      - -password-file=/secrets/keystore-password
+      - -output=/keystore/keystore.jks
+    volumeMounts:
+    - name: certs
+      mountPath: /certs
+      readOnly: true
+    - name: keystore
+      mountPath: /keystore
+    - name: secrets
+      mountPath: /secrets
+      readOnly: true
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+
+  containers:
+  - name: java-app
+    image: eclipse-temurin:21-jre-alpine
+    command: ["java"]
+    args:
+      - -Djavax.net.ssl.keyStore=/keystore/keystore.jks
+      - -Djavax.net.ssl.keyStorePassword=changeit
+      - -Djavax.net.ssl.trustStore=/keystore/keystore.jks
+      - -Djavax.net.ssl.trustStorePassword=changeit
+      - -jar
+      - /app/app.jar
+    ports:
+    - containerPort: 8443
+      name: https
+    volumeMounts:
+    - name: keystore
+      mountPath: /keystore
+      readOnly: true
+    - name: app
+      mountPath: /app
+      readOnly: true
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+  volumes:
+  # TLS certificates from cert-manager
+  - name: certs
+    secret:
+      secretName: my-tls-cert
+  
+  # Shared volume for the generated keystore
+  - name: keystore
+    emptyDir:
+      medium: Memory
+      sizeLimit: "1Mi"
+  
+  # Password for the keystore
+  - name: secrets
+    secret:
+      secretName: keystore-password
+      items:
+      - key: password
+        path: keystore-password
+  
+  # Application JAR (example - replace with your app)
+  - name: app
+    configMap:
+      name: java-app
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keystore-password
+type: Opaque
+stringData:
+  password: changeit
+
+---
+# Example cert-manager Certificate resource
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: my-tls-cert
+spec:
+  secretName: my-tls-cert
+  duration: 2160h # 90 days
+  renewBefore: 360h # 15 days
+  issuerRef:
+    name: my-cluster-issuer
+    kind: ClusterIssuer
+  commonName: myapp.example.com
+  dnsNames:
+  - myapp.example.com
+  - myapp.svc.cluster.local
+  usages:
+  - server auth
+  - client auth
