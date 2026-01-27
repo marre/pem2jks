@@ -82,8 +82,8 @@ jobs:
     needs: [lint, test, integration]
     strategy:
       matrix:
-        goos: [linux, darwin]
-        goarch: [amd64, arm64]
+        goos: [linux]
+        goarch: [amd64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -110,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: pem2jks-*
+          path: pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}
 
   docker:
     name: Docker Build
@@ -130,7 +130,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: false
           tags: pem2jks:ci
           build-args: |
