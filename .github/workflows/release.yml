@@ -40,11 +40,8 @@ jobs:
     needs: release
     strategy:
       matrix:
-        goos: [linux, darwin, windows]
+        goos: [linux, darwin]
         goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
-            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,28 +59,17 @@ jobs:
           VERSION=${{ needs.release.outputs.version }}
           COMMIT=${GITHUB_SHA::8}
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
-          BINARY_NAME="pem2jks-${GOOS}-${GOARCH}${EXT}"
+          BINARY_NAME="pem2jks-${GOOS}-${GOARCH}"
           CGO_ENABLED=0 go build \
             -ldflags="-s -w -X main.Version=${VERSION} -X main.GitCommit=${COMMIT} -X main.BuildDate=${DATE}" \
             -o ${BINARY_NAME} \
             ./cmd/pem2jks
 
-      - name: Create archive (Unix)
-        if: matrix.goos != 'windows'
+      - name: Create archive
         run: |
           BINARY_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}"
           ARCHIVE_NAME="${BINARY_NAME}.tar.gz"
           tar -czvf ${ARCHIVE_NAME} ${BINARY_NAME} LICENSE.txt README.md
-          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
-
-      - name: Create archive (Windows)
-        if: matrix.goos == 'windows'
-        run: |
-          BINARY_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}.exe"
-          ARCHIVE_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
-          zip ${ARCHIVE_NAME} ${BINARY_NAME} LICENSE.txt README.md
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
 
       - name: Upload Release Asset
