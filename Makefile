@@ -60,10 +60,31 @@ clean:
 	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
 	rm -f testdata/VerifyKeystore.class
 
-# Build Docker image
+# Build Docker image (single platform, for local use)
 docker:
 	docker build -t $(BINARY_NAME):$(VERSION) .
 	docker tag $(BINARY_NAME):$(VERSION) $(BINARY_NAME):latest
+
+# Build multi-arch Docker image (requires docker buildx)
+docker-multiarch:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(DATE) \
+		-t $(BINARY_NAME):$(VERSION) \
+		-t $(BINARY_NAME):latest \
+		.
+
+# Build and push multi-arch Docker image
+docker-push:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(DATE) \
+		-t $(BINARY_NAME):$(VERSION) \
+		-t $(BINARY_NAME):latest \
+		--push \
+		.
 
 # Format code
 fmt:
@@ -98,7 +119,9 @@ help:
 	@echo "  generate-certs   - Generate test certificates"
 	@echo "  install          - Install to GOPATH/bin"
 	@echo "  clean            - Remove build artifacts"
-	@echo "  docker           - Build Docker image"
+	@echo "  docker           - Build Docker image (local platform)"
+	@echo "  docker-multiarch - Build multi-arch Docker image (amd64+arm64)"
+	@echo "  docker-push      - Build and push multi-arch Docker image"
 	@echo "  fmt              - Format code"
 	@echo "  vet              - Run go vet"
 	@echo "  lint             - Run fmt and vet"
