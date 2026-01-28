@@ -189,7 +189,7 @@ make build
 # Run unit tests
 make test
 
-# Run integration tests (requires Java)
+# Run integration tests (requires Java JDK for keytool)
 make test-integration
 
 # Format and lint code

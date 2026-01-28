@@ -58,7 +58,6 @@ install:
 clean:
 	rm -rf bin/
 	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
-	rm -f testdata/VerifyKeystore.class
 
 # Build Docker image (single platform, for local use)
 docker:
