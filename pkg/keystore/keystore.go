@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"software.sslmate.com/src/go-pkcs12"
@@ -28,6 +27,9 @@ const (
 )
 
 // Sun's proprietary key protection algorithm OID: 1.3.6.1.4.1.42.2.17.1.1
+// This algorithm has no meaningful parameters, but for compatibility Java keytool
+// and minijks expect the AlgorithmIdentifier parameters field to be encoded as
+// an explicit ASN.1 NULL.
 var sunJKSAlgoOID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 42, 2, 17, 1, 1}
 
 // Entry represents a keystore entry
@@ -68,6 +70,11 @@ func NewJKS() *JKS {
 
 // AddPrivateKey adds a private key entry with its certificate chain
 func (ks *JKS) AddPrivateKey(alias string, pkcs8Key []byte, certChain [][]byte) error {
+	return ks.AddPrivateKeyWithTimestamp(alias, pkcs8Key, certChain, time.Now())
+}
+
+// AddPrivateKeyWithTimestamp adds a private key entry with its certificate chain and a specific timestamp
+func (ks *JKS) AddPrivateKeyWithTimestamp(alias string, pkcs8Key []byte, certChain [][]byte, timestamp time.Time) error {
 	if alias == "" {
 		return errors.New("alias cannot be empty")
 	}
@@ -86,8 +93,8 @@ func (ks *JKS) AddPrivateKey(alias string, pkcs8Key []byte, certChain [][]byte) 
 	}
 
 	ks.Entries = append(ks.Entries, PrivateKeyEntry{
-		Alias:     strings.ToLower(alias),
-		Timestamp: time.Now(),
+		Alias:     alias, // Preserve original casing - JKS is case-insensitive but we keep user's preference
+		Timestamp: timestamp,
 		PrivKey:   pkcs8Key,
 		CertChain: certChain,
 	})
@@ -96,6 +103,11 @@ func (ks *JKS) AddPrivateKey(alias string, pkcs8Key []byte, certChain [][]byte) 
 
 // AddTrustedCert adds a trusted certificate entry
 func (ks *JKS) AddTrustedCert(alias string, certDER []byte) error {
+	return ks.AddTrustedCertWithTimestamp(alias, certDER, time.Now())
+}
+
+// AddTrustedCertWithTimestamp adds a trusted certificate entry with a specific timestamp
+func (ks *JKS) AddTrustedCertWithTimestamp(alias string, certDER []byte, timestamp time.Time) error {
 	if alias == "" {
 		return errors.New("alias cannot be empty")
 	}
@@ -109,8 +121,8 @@ func (ks *JKS) AddTrustedCert(alias string, certDER []byte) error {
 	}
 
 	ks.Entries = append(ks.Entries, TrustedCertEntry{
-		Alias:     strings.ToLower(alias),
-		Timestamp: time.Now(),
+		Alias:     alias, // Preserve original casing
+		Timestamp: timestamp,
 		Cert:      certDER,
 	})
 	return nil
@@ -258,12 +270,15 @@ func computeJKSIntegrityHash(data []byte, password string) []byte {
 }
 
 // stringToUTF16BE converts a string to UTF-16 big-endian bytes
+// This correctly handles Unicode characters outside the BMP (> U+FFFF)
+// by encoding them as surrogate pairs.
 func stringToUTF16BE(s string) []byte {
 	var result []byte
 	for _, r := range s {
 		if r <= 0xFFFF {
 			result = append(result, byte(r>>8), byte(r))
 		} else {
+			// Characters outside BMP need surrogate pair encoding
 			r -= 0x10000
 			high := uint16(0xD800 + (r >> 10))
 			low := uint16(0xDC00 + (r & 0x3FF))
@@ -320,32 +335,39 @@ func jksKeystream(iv, password []byte) []byte {
 	return keystream
 }
 
-// encapsulatePrivateKey wraps the encrypted key in PKCS#8 EncryptedPrivateKeyInfo
+// asn1NULL represents an ASN.1 NULL value used in AlgorithmIdentifier.
+// Java keytool and minijks encode unused algorithm parameters as ASN.1 NULL.
+var asn1NULL = asn1.RawValue{FullBytes: []byte{0x05, 0x00}}
+
+// encryptedPrivateKeyInfo is the PKCS#8 EncryptedPrivateKeyInfo ASN.1 structure.
+// Defined in RFC 5208 § 6: https://tools.ietf.org/html/rfc5208#section-6
+type encryptedPrivateKeyInfo struct {
+	Algo          algorithmIdentifier
+	EncryptedData []byte
+}
+
+// algorithmIdentifier is the AlgorithmIdentifier ASN.1 structure.
+type algorithmIdentifier struct {
+	Algorithm  asn1.ObjectIdentifier
+	Parameters asn1.RawValue `asn1:"optional"`
+}
+
+// encapsulatePrivateKey wraps the encrypted key in PKCS#8 EncryptedPrivateKeyInfo.
+// The Sun JKS algorithm OID (1.3.6.1.4.1.42.2.17.1.1) uses ASN.1 NULL for parameters,
+// matching the behavior of Java keytool and the minijks implementation.
 func encapsulatePrivateKey(encryptedKey []byte) ([]byte, error) {
-	algoID := struct {
-		Algorithm  asn1.ObjectIdentifier
-		Parameters asn1.RawValue
-	}{
-		Algorithm:  sunJKSAlgoOID,
-		Parameters: asn1.RawValue{Tag: asn1.TagNull, Bytes: []byte{}},
+	epki := encryptedPrivateKeyInfo{
+		Algo: algorithmIdentifier{
+			Algorithm:  sunJKSAlgoOID,
+			Parameters: asn1NULL,
+		},
+		EncryptedData: encryptedKey,
 	}
-
-	epki := struct {
-		Algorithm     asn1.RawValue
-		EncryptedData []byte
-	}{}
-
-	algoBytes, err := asn1.Marshal(algoID)
-	if err != nil {
-		return nil, err
-	}
-	epki.Algorithm = asn1.RawValue{FullBytes: algoBytes}
-	epki.EncryptedData = encryptedKey
 
 	return asn1.Marshal(epki)
 }
 
-// ParsePEMCertificates parses one or more PEM-encoded certificates
+// ParsePEMCertificates parses one or more PEM-encoded certificates.
 func ParsePEMCertificates(pemData []byte) ([][]byte, error) {
 	var certs [][]byte
 	for len(pemData) > 0 {
@@ -368,7 +390,7 @@ func ParsePEMCertificates(pemData []byte) ([][]byte, error) {
 	return certs, nil
 }
 
-// ParsePEMPrivateKey parses a PEM-encoded private key and returns PKCS#8 DER
+// ParsePEMPrivateKey parses a PEM-encoded private key and returns PKCS#8 DER.
 func ParsePEMPrivateKey(pemData []byte) ([]byte, error) {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
@@ -406,7 +428,7 @@ func ParsePEMPrivateKey(pemData []byte) ([]byte, error) {
 	}
 }
 
-// parsePEMPrivateKeyRaw parses a PEM private key and returns the raw key object
+// parsePEMPrivateKeyRaw parses a PEM private key and returns the raw key object.
 func parsePEMPrivateKeyRaw(pemData []byte) (interface{}, error) {
 	pkcs8Data, err := ParsePEMPrivateKey(pemData)
 	if err != nil {
@@ -415,7 +437,7 @@ func parsePEMPrivateKeyRaw(pemData []byte) (interface{}, error) {
 	return x509.ParsePKCS8PrivateKey(pkcs8Data)
 }
 
-// CreateJKSFromPEM creates a JKS keystore from PEM data
+// CreateJKSFromPEM creates a JKS keystore from PEM data.
 func CreateJKSFromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
 	ks := NewJKS()
 
@@ -477,7 +499,7 @@ func CreateJKSFromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]
 	return ks.Marshal(password)
 }
 
-// PKCS12KeyStore represents a PKCS#12 keystore
+// PKCS12KeyStore represents a PKCS#12 keystore.
 type PKCS12KeyStore struct {
 	PrivateKey   interface{}
 	Certificate  *x509.Certificate
@@ -485,28 +507,28 @@ type PKCS12KeyStore struct {
 	TrustedCerts []*x509.Certificate
 }
 
-// NewPKCS12 creates a new empty PKCS12KeyStore
+// NewPKCS12 creates a new empty PKCS12KeyStore.
 func NewPKCS12() *PKCS12KeyStore {
 	return &PKCS12KeyStore{}
 }
 
-// SetPrivateKey sets the private key and its certificate
+// SetPrivateKey sets the private key and its certificate.
 func (ks *PKCS12KeyStore) SetPrivateKey(key interface{}, cert *x509.Certificate) {
 	ks.PrivateKey = key
 	ks.Certificate = cert
 }
 
-// AddCACert adds a CA certificate to the chain
+// AddCACert adds a CA certificate to the chain.
 func (ks *PKCS12KeyStore) AddCACert(cert *x509.Certificate) {
 	ks.CACerts = append(ks.CACerts, cert)
 }
 
-// AddTrustedCert adds a trusted certificate (for truststores)
+// AddTrustedCert adds a trusted certificate (for truststores).
 func (ks *PKCS12KeyStore) AddTrustedCert(cert *x509.Certificate) {
 	ks.TrustedCerts = append(ks.TrustedCerts, cert)
 }
 
-// Marshal serializes the keystore to PKCS#12 format
+// Marshal serializes the keystore to PKCS#12 format.
 func (ks *PKCS12KeyStore) Marshal(password string) ([]byte, error) {
 	if ks.PrivateKey != nil {
 		return pkcs12.Modern.Encode(ks.PrivateKey, ks.Certificate, ks.CACerts, password)
@@ -520,7 +542,7 @@ func (ks *PKCS12KeyStore) Marshal(password string) ([]byte, error) {
 	return pkcs12.Modern.EncodeTrustStore(allCerts, password)
 }
 
-// MarshalLegacy serializes the keystore to PKCS#12 format using legacy algorithms
+// MarshalLegacy serializes the keystore to PKCS#12 format using legacy algorithms.
 func (ks *PKCS12KeyStore) MarshalLegacy(password string) ([]byte, error) {
 	if ks.PrivateKey != nil {
 		return pkcs12.Legacy.Encode(ks.PrivateKey, ks.Certificate, ks.CACerts, password)
@@ -534,7 +556,7 @@ func (ks *PKCS12KeyStore) MarshalLegacy(password string) ([]byte, error) {
 	return pkcs12.Legacy.EncodeTrustStore(allCerts, password)
 }
 
-// CreatePKCS12FromPEM creates a PKCS#12 keystore from PEM data
+// CreatePKCS12FromPEM creates a PKCS#12 keystore from PEM data.
 func CreatePKCS12FromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
 	ks := NewPKCS12()
 
@@ -594,7 +616,7 @@ func CreatePKCS12FromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) 
 	return ks.Marshal(password)
 }
 
-// CreatePKCS12FromPEMLegacy creates a PKCS#12 keystore using legacy algorithms
+// CreatePKCS12FromPEMLegacy creates a PKCS#12 keystore using legacy algorithms.
 func CreatePKCS12FromPEMLegacy(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
 	ks := NewPKCS12()
 

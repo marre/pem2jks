@@ -1,12 +1,14 @@
 package keystore
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"math/big"
 	"testing"
@@ -255,6 +257,111 @@ func TestUTF16BEEncoding(t *testing.T) {
 	}
 }
 
+func TestEncapsulatePrivateKeyASN1Format(t *testing.T) {
+	// Test that encapsulatePrivateKey produces properly formatted PKCS#8 EncryptedPrivateKeyInfo
+	// with ASN.1 NULL parameters (matching Java keytool and minijks)
+	testData := []byte("test encrypted key data")
+
+	encapsulated, err := encapsulatePrivateKey(testData)
+	if err != nil {
+		t.Fatalf("encapsulatePrivateKey failed: %v", err)
+	}
+
+	// Parse the encapsulated data to verify structure
+	var epki struct {
+		Algo struct {
+			Algorithm  asn1.ObjectIdentifier
+			Parameters asn1.RawValue `asn1:"optional"`
+		}
+		EncryptedData []byte
+	}
+
+	rest, err := asn1.Unmarshal(encapsulated, &epki)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal encapsulated key: %v", err)
+	}
+	if len(rest) != 0 {
+		t.Errorf("Unexpected trailing data: %d bytes", len(rest))
+	}
+
+	// Verify the OID is correct (Sun JKS algorithm OID)
+	if !epki.Algo.Algorithm.Equal(sunJKSAlgoOID) {
+		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, sunJKSAlgoOID)
+	}
+
+	// Verify parameters is ASN.1 NULL (0x05, 0x00)
+	if !bytes.Equal(epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes) {
+		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes)
+	}
+
+	// Verify the encrypted data matches
+	if !bytes.Equal(epki.EncryptedData, testData) {
+		t.Errorf("Wrong encrypted data: got %x, want %x", epki.EncryptedData, testData)
+	}
+}
+
+func TestJKSPrivateKeyEncryptionFormat(t *testing.T) {
+	// Test that we can encrypt a private key and the format is valid
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	pkcs8Key, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("Failed to marshal key: %v", err)
+	}
+
+	password := "testpassword"
+	encrypted, err := encryptJKSPrivateKey(pkcs8Key, password)
+	if err != nil {
+		t.Fatalf("encryptJKSPrivateKey failed: %v", err)
+	}
+
+	// Verify encrypted data has correct structure: 20 bytes IV + encrypted + 20 bytes hash
+	if len(encrypted) < 40 {
+		t.Fatalf("Encrypted data too short: %d bytes", len(encrypted))
+	}
+
+	// Encapsulate and verify ASN.1 structure
+	encapsulated, err := encapsulatePrivateKey(encrypted)
+	if err != nil {
+		t.Fatalf("encapsulatePrivateKey failed: %v", err)
+	}
+
+	// Ensure it can be parsed as valid ASN.1
+	var epki struct {
+		Algo struct {
+			Algorithm  asn1.ObjectIdentifier
+			Parameters asn1.RawValue `asn1:"optional"`
+		}
+		EncryptedData []byte
+	}
+
+	rest, err := asn1.Unmarshal(encapsulated, &epki)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal encapsulated key: %v", err)
+	}
+	if len(rest) != 0 {
+		t.Errorf("Unexpected trailing data after ASN.1 unmarshal: %d bytes", len(rest))
+	}
+
+	// Verify the OID is correct (Sun JKS algorithm OID)
+	if !epki.Algo.Algorithm.Equal(sunJKSAlgoOID) {
+		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, sunJKSAlgoOID)
+	}
+
+	// Verify parameters is ASN.1 NULL (0x05, 0x00)
+	if !bytes.Equal(epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes) {
+		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes)
+	}
+
+	// Verify the encrypted data matches
+	if !bytes.Equal(epki.EncryptedData, encrypted) {
+		t.Errorf("Encrypted data mismatch in encapsulated structure")
+	}
+}
+
 func generateTestCert(t *testing.T, pub interface{}) (*x509.Certificate, []byte) {
 	t.Helper()
 
@@ -286,4 +393,61 @@ func generateTestCert(t *testing.T, pub interface{}) (*x509.Certificate, []byte)
 	}
 
 	return cert, certDER
+}
+
+func TestJKSPrivateKeyAliasCasing(t *testing.T) {
+	// Test that mixed-case alias is preserved in marshaled JKS output
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("Failed to marshal key to PKCS#8: %v", err)
+	}
+
+	ks := NewJKS()
+	mixedCaseAlias := "MyTestAlias"
+	if err := ks.AddPrivateKey(mixedCaseAlias, pkcs8, [][]byte{certDER}); err != nil {
+		t.Fatalf("Failed to add private key: %v", err)
+	}
+
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Verify the alias appears in the marshaled output with exact casing
+	if !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
+		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
+	}
+}
+
+func TestJKSTrustedCertAliasCasing(t *testing.T) {
+	// Test that mixed-case alias is preserved for trusted cert entries
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	ks := NewJKS()
+	mixedCaseAlias := "MyTrustedCert"
+	if err := ks.AddTrustedCert(mixedCaseAlias, certDER); err != nil {
+		t.Fatalf("Failed to add trusted cert: %v", err)
+	}
+
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Verify the alias appears in the marshaled output with exact casing
+	if !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
+		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
+	}
 }
