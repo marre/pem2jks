@@ -104,6 +104,8 @@ cosign verify ghcr.io/marre/pem2jks:1.0.0 \
 
 The verification confirms that the image was built and signed by the official GitHub Actions workflow in this repository.
 
+For more details about image signing, verification, and Kubernetes admission control policies, see [Docker Image Signing Documentation](docs/DOCKER-IMAGE-SIGNING.md).
+
 ### As an Init Container
 
 ```yaml
