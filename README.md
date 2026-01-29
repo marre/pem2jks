@@ -79,6 +79,31 @@ pem2jks --help
 
 ## Kubernetes Usage
 
+### Docker Image Security
+
+All Docker images published as part of releases are signed using [Cosign](https://docs.sigstore.dev/cosign/overview/) with keyless signing (OIDC-based). This ensures the authenticity and integrity of the images.
+
+#### Verifying Image Signatures
+
+To verify the signature of a Docker image before using it:
+
+```bash
+# Install Cosign (if not already installed)
+# See: https://docs.sigstore.dev/cosign/installation/
+
+# Verify the latest image
+cosign verify ghcr.io/marre/pem2jks:latest \
+  --certificate-identity-regexp="https://github.com/marre/pem2jks/.*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+
+# Verify a specific version
+cosign verify ghcr.io/marre/pem2jks:1.0.0 \
+  --certificate-identity-regexp="https://github.com/marre/pem2jks/.*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+```
+
+The verification confirms that the image was built and signed by the official GitHub Actions workflow in this repository.
+
 ### As an Init Container
 
 ```yaml
