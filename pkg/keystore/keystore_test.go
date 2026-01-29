@@ -451,4 +451,3 @@ func TestJKSTrustedCertAliasCasing(t *testing.T) {
 		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
 	}
 }
-
