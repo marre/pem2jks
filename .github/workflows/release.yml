@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write  # Required for OIDC-based keyless signing with Cosign
 
 jobs:
   release:
@@ -96,6 +97,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -115,6 +119,7 @@ jobs:
             type=sha
 
       - name: Build and push
+        id: build-push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -130,3 +135,10 @@ jobs:
             DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Sign Docker images with Cosign
+        run: |
+          echo "Signing images with keyless Cosign..."
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/pem2jks@${{ steps.build-push.outputs.digest }}
+          echo "✓ Image signed successfully"
+          echo "Image digest: ${{ steps.build-push.outputs.digest }}"
