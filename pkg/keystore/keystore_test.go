@@ -322,7 +322,7 @@ func TestJKSPrivateKeyRoundtrip(t *testing.T) {
 
 	// Verify encrypted data has correct structure: 20 bytes IV + encrypted + 20 bytes hash
 	if len(encrypted) < 40 {
-		t.Errorf("Encrypted data too short: %d bytes", len(encrypted))
+		t.Fatalf("Encrypted data too short: %d bytes", len(encrypted))
 	}
 
 	// Encapsulate and verify ASN.1 structure
@@ -340,9 +340,12 @@ func TestJKSPrivateKeyRoundtrip(t *testing.T) {
 		EncryptedData []byte
 	}
 
-	_, err = asn1.Unmarshal(encapsulated, &epki)
+	rest, err := asn1.Unmarshal(encapsulated, &epki)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal encapsulated key: %v", err)
+	}
+	if len(rest) != 0 {
+		t.Errorf("Unexpected trailing data after ASN.1 unmarshal: %d bytes", len(rest))
 	}
 
 	// Verify the OID is correct (Sun JKS algorithm OID)

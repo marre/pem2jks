@@ -27,7 +27,9 @@ const (
 )
 
 // Sun's proprietary key protection algorithm OID: 1.3.6.1.4.1.42.2.17.1.1
-// This algorithm does NOT take parameters (unlike PKCS#5 algorithms).
+// This algorithm has no meaningful parameters, but for compatibility Java keytool
+// and minijks expect the AlgorithmIdentifier parameters field to be encoded as
+// an explicit ASN.1 NULL.
 var sunJKSAlgoOID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 42, 2, 17, 1, 1}
 
 // Entry represents a keystore entry
