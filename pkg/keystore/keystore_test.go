@@ -424,13 +424,6 @@ func TestJKSPrivateKeyAliasCasing(t *testing.T) {
 	if !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
 		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
 	}
-
-	// Verify lowercase version doesn't appear (would indicate normalization)
-	lowercaseAlias := "mytestalias"
-	// Count occurrences - we should NOT find the all-lowercase version
-	if bytes.Contains(jksData, []byte(lowercaseAlias)) && !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
-		t.Errorf("Alias was normalized to lowercase; expected %q, found %q", mixedCaseAlias, lowercaseAlias)
-	}
 }
 
 func TestJKSTrustedCertAliasCasing(t *testing.T) {
@@ -456,13 +449,6 @@ func TestJKSTrustedCertAliasCasing(t *testing.T) {
 	// Verify the alias appears in the marshaled output with exact casing
 	if !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
 		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
-	}
-
-	// Verify lowercase version doesn't appear (would indicate normalization)
-	lowercaseAlias := "mytrustedcert"
-	// Count occurrences - we should NOT find the all-lowercase version
-	if bytes.Contains(jksData, []byte(lowercaseAlias)) && !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
-		t.Errorf("Alias was normalized to lowercase; expected %q, found %q", mixedCaseAlias, lowercaseAlias)
 	}
 }
 
