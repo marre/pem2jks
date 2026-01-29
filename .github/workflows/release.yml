@@ -137,8 +137,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Sign Docker images with Cosign
-        env:
-          COSIGN_EXPERIMENTAL: "true"
         run: |
           echo "Signing images with keyless Cosign..."
           cosign sign --yes ghcr.io/${{ github.repository_owner }}/pem2jks@${{ steps.build-push.outputs.digest }}
