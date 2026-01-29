@@ -344,6 +344,23 @@ func TestJKSPrivateKeyRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to unmarshal encapsulated key: %v", err)
 	}
+
+	// Verify the OID is correct (Sun JKS algorithm OID)
+	expectedOID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 42, 2, 17, 1, 1}
+	if !epki.Algo.Algorithm.Equal(expectedOID) {
+		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, expectedOID)
+	}
+
+	// Verify parameters is ASN.1 NULL (0x05, 0x00)
+	expectedNull := []byte{0x05, 0x00}
+	if !bytes.Equal(epki.Algo.Parameters.FullBytes, expectedNull) {
+		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, expectedNull)
+	}
+
+	// Verify the encrypted data matches
+	if !bytes.Equal(epki.EncryptedData, encrypted) {
+		t.Errorf("Encrypted data mismatch in encapsulated structure")
+	}
 }
 
 func generateTestCert(t *testing.T, pub interface{}) (*x509.Certificate, []byte) {
