@@ -333,39 +333,36 @@ func jksKeystream(iv, password []byte) []byte {
 	return keystream
 }
 
-// encapsulatePrivateKey wraps the encrypted key in PKCS#8 EncryptedPrivateKeyInfo
-// The Sun JKS algorithm OID (1.3.6.1.4.1.42.2.17.1.1) does NOT take parameters,
-// so we encode the AlgorithmIdentifier without any parameters field.
+// asn1NULL represents an ASN.1 NULL value used in AlgorithmIdentifier.
+// Java keytool and minijks encode unused algorithm parameters as ASN.1 NULL.
+var asn1NULL = asn1.RawValue{FullBytes: []byte{0x05, 0x00}}
+
+// encryptedPrivateKeyInfo is the PKCS#8 EncryptedPrivateKeyInfo ASN.1 structure.
+// Defined in RFC 5208 § 6: https://tools.ietf.org/html/rfc5208#section-6
+type encryptedPrivateKeyInfo struct {
+	Algo          algorithmIdentifier
+	EncryptedData []byte
+}
+
+// algorithmIdentifier is the AlgorithmIdentifier ASN.1 structure.
+type algorithmIdentifier struct {
+	Algorithm  asn1.ObjectIdentifier
+	Parameters asn1.RawValue `asn1:"optional"`
+}
+
+// encapsulatePrivateKey wraps the encrypted key in PKCS#8 EncryptedPrivateKeyInfo.
+// The Sun JKS algorithm OID (1.3.6.1.4.1.42.2.17.1.1) uses ASN.1 NULL for parameters,
+// matching the behavior of Java keytool and the minijks implementation.
 func encapsulatePrivateKey(encryptedKey []byte) ([]byte, error) {
-	// AlgorithmIdentifier with no parameters (not even NULL)
-	// This matches the Java keytool behavior and minijks implementation
-	algoBytes, err := asn1.Marshal(sunJKSAlgoOID)
-	if err != nil {
-		return nil, err
+	epki := encryptedPrivateKeyInfo{
+		Algo: algorithmIdentifier{
+			Algorithm:  sunJKSAlgoOID,
+			Parameters: asn1NULL,
+		},
+		EncryptedData: encryptedKey,
 	}
 
-	// Build the AlgorithmIdentifier SEQUENCE manually
-	// SEQUENCE { OID }
-	algoSeq, err := asn1.Marshal(asn1.RawValue{
-		Class:      asn1.ClassUniversal,
-		Tag:        asn1.TagSequence,
-		IsCompound: true,
-		Bytes:      algoBytes,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// EncryptedPrivateKeyInfo SEQUENCE { AlgorithmIdentifier, OCTET STRING }
-	epkiContent := append(algoSeq, mustMarshalOctetString(encryptedKey)....
-
-// Must marshal octet string marshals data as an ASN.1 OCTET STRING.
-func mustMarshalOctetString(data []byte) []byte {
-	result, err := asn1.Marshal(data)
-	if err != nil {
-		panic(err) // Should never happen for []byte
-	}
-	return result
+	return asn1.Marshal(epki)
 }
 
 // ParsePEMCertificates parses one or more PEM-encoded certificates.
