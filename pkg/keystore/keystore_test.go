@@ -285,15 +285,13 @@ func TestEncapsulatePrivateKeyASN1Format(t *testing.T) {
 	}
 
 	// Verify the OID is correct (Sun JKS algorithm OID)
-	expectedOID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 42, 2, 17, 1, 1}
-	if !epki.Algo.Algorithm.Equal(expectedOID) {
-		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, expectedOID)
+	if !epki.Algo.Algorithm.Equal(sunJKSAlgoOID) {
+		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, sunJKSAlgoOID)
 	}
 
 	// Verify parameters is ASN.1 NULL (0x05, 0x00)
-	expectedNull := []byte{0x05, 0x00}
-	if !bytes.Equal(epki.Algo.Parameters.FullBytes, expectedNull) {
-		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, expectedNull)
+	if !bytes.Equal(epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes) {
+		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes)
 	}
 
 	// Verify the encrypted data matches
@@ -302,7 +300,7 @@ func TestEncapsulatePrivateKeyASN1Format(t *testing.T) {
 	}
 }
 
-func TestJKSPrivateKeyRoundtrip(t *testing.T) {
+func TestJKSPrivateKeyEncryptionFormat(t *testing.T) {
 	// Test that we can encrypt a private key and the format is valid
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -349,15 +347,13 @@ func TestJKSPrivateKeyRoundtrip(t *testing.T) {
 	}
 
 	// Verify the OID is correct (Sun JKS algorithm OID)
-	expectedOID := asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 42, 2, 17, 1, 1}
-	if !epki.Algo.Algorithm.Equal(expectedOID) {
-		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, expectedOID)
+	if !epki.Algo.Algorithm.Equal(sunJKSAlgoOID) {
+		t.Errorf("Wrong algorithm OID: got %v, want %v", epki.Algo.Algorithm, sunJKSAlgoOID)
 	}
 
 	// Verify parameters is ASN.1 NULL (0x05, 0x00)
-	expectedNull := []byte{0x05, 0x00}
-	if !bytes.Equal(epki.Algo.Parameters.FullBytes, expectedNull) {
-		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, expectedNull)
+	if !bytes.Equal(epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes) {
+		t.Errorf("Wrong algorithm parameters: got %x, want %x (ASN.1 NULL)", epki.Algo.Parameters.FullBytes, asn1NULL.FullBytes)
 	}
 
 	// Verify the encrypted data matches
@@ -397,4 +393,61 @@ func generateTestCert(t *testing.T, pub interface{}) (*x509.Certificate, []byte)
 	}
 
 	return cert, certDER
+}
+
+func TestJKSPrivateKeyAliasCasing(t *testing.T) {
+	// Test that mixed-case alias is preserved in marshaled JKS output
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("Failed to marshal key to PKCS#8: %v", err)
+	}
+
+	ks := NewJKS()
+	mixedCaseAlias := "MyTestAlias"
+	if err := ks.AddPrivateKey(mixedCaseAlias, pkcs8, [][]byte{certDER}); err != nil {
+		t.Fatalf("Failed to add private key: %v", err)
+	}
+
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Verify the alias appears in the marshaled output with exact casing
+	if !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
+		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
+	}
+}
+
+func TestJKSTrustedCertAliasCasing(t *testing.T) {
+	// Test that mixed-case alias is preserved for trusted cert entries
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	ks := NewJKS()
+	mixedCaseAlias := "MyTrustedCert"
+	if err := ks.AddTrustedCert(mixedCaseAlias, certDER); err != nil {
+		t.Fatalf("Failed to add trusted cert: %v", err)
+	}
+
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Verify the alias appears in the marshaled output with exact casing
+	if !bytes.Contains(jksData, []byte(mixedCaseAlias)) {
+		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
+	}
 }
