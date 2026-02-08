@@ -312,7 +312,7 @@ func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
 	// Add CA certificates to the existing JKS
 	ca1PEM, _ := generateTestCert(t, "CA1")
 	ca2PEM, _ := generateTestCert(t, "CA2")
-	
+
 	caPairs := []certKeyPair{
 		{certPEM: ca1PEM, alias: "ca1"},
 		{certPEM: ca2PEM, alias: "ca2"},
@@ -359,19 +359,19 @@ func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
 // TestNewEntryFormat tests the new --entry flag format
 func TestNewEntryFormat(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Generate test certificates
 	cert1PEM, key1PEM := generateTestCert(t, "app1.example.com")
 	cert2PEM, _ := generateTestCert(t, "ca.example.com") // No key for CA cert
 	cert3PEM, key3PEM := generateTestCert(t, "app2.example.com")
-	
+
 	// Write to temp files
 	cert1File := filepath.Join(tmpDir, "app1.crt")
 	key1File := filepath.Join(tmpDir, "app1.key")
 	cert2File := filepath.Join(tmpDir, "ca.crt")
 	cert3File := filepath.Join(tmpDir, "app2.crt")
 	key3File := filepath.Join(tmpDir, "app2.key")
-	
+
 	if err := os.WriteFile(cert1File, cert1PEM, 0644); err != nil {
 		t.Fatalf("Failed to write cert1: %v", err)
 	}
@@ -387,17 +387,17 @@ func TestNewEntryFormat(t *testing.T) {
 	if err := os.WriteFile(key3File, key3PEM, 0644); err != nil {
 		t.Fatalf("Failed to write key3: %v", err)
 	}
-	
+
 	// Test 1: cert:key:alias format
 	t.Run("cert_key_alias", func(t *testing.T) {
 		certs = []string{cert1File + ":" + key1File + ":myapp"}
 		defer func() { certs = nil }()
-		
+
 		pairs, err := parseCerts(certs)
 		if err != nil {
 			t.Fatalf("parseCerts failed: %v", err)
 		}
-		
+
 		if len(pairs) != 1 {
 			t.Fatalf("Expected 1 pair, got %d", len(pairs))
 		}
@@ -411,17 +411,17 @@ func TestNewEntryFormat(t *testing.T) {
 			t.Error("Expected key PEM to be populated")
 		}
 	})
-	
+
 	// Test 2: cert:key (auto-generate alias)
 	t.Run("cert_key_autoalias", func(t *testing.T) {
 		certs = []string{cert1File + ":" + key1File}
 		defer func() { certs = nil }()
-		
+
 		pairs, err := parseCerts(certs)
 		if err != nil {
 			t.Fatalf("parseCerts failed: %v", err)
 		}
-		
+
 		if len(pairs) != 1 {
 			t.Fatalf("Expected 1 pair, got %d", len(pairs))
 		}
@@ -429,17 +429,17 @@ func TestNewEntryFormat(t *testing.T) {
 			t.Errorf("Expected alias 'server', got %q", pairs[0].alias)
 		}
 	})
-	
+
 	// Test 3: cert:: (cert-only with auto-generated alias)
 	t.Run("cert_only", func(t *testing.T) {
 		certs = []string{cert2File + "::"}
 		defer func() { certs = nil }()
-		
+
 		pairs, err := parseCerts(certs)
 		if err != nil {
 			t.Fatalf("parseCerts failed: %v", err)
 		}
-		
+
 		if len(pairs) != 1 {
 			t.Fatalf("Expected 1 pair, got %d", len(pairs))
 		}
@@ -450,17 +450,17 @@ func TestNewEntryFormat(t *testing.T) {
 			t.Error("Expected key PEM to be empty for cert-only")
 		}
 	})
-	
+
 	// Test 4: cert::alias (cert-only with explicit alias)
 	t.Run("cert_only_alias", func(t *testing.T) {
 		certs = []string{cert2File + "::myca"}
 		defer func() { certs = nil }()
-		
+
 		pairs, err := parseCerts(certs)
 		if err != nil {
 			t.Fatalf("parseCerts failed: %v", err)
 		}
-		
+
 		if len(pairs) != 1 {
 			t.Fatalf("Expected 1 pair, got %d", len(pairs))
 		}
@@ -471,7 +471,7 @@ func TestNewEntryFormat(t *testing.T) {
 			t.Error("Expected key PEM to be empty for cert-only")
 		}
 	})
-	
+
 	// Test 5: Multiple mixed entries
 	t.Run("mixed_entries", func(t *testing.T) {
 		certs = []string{
@@ -480,16 +480,16 @@ func TestNewEntryFormat(t *testing.T) {
 			cert3File + ":" + key3File, // auto-alias should be "server-2"
 		}
 		defer func() { certs = nil }()
-		
+
 		pairs, err := parseCerts(certs)
 		if err != nil {
 			t.Fatalf("parseCerts failed: %v", err)
 		}
-		
+
 		if len(pairs) != 3 {
 			t.Fatalf("Expected 3 pairs, got %d", len(pairs))
 		}
-		
+
 		// Verify first entry (with key and alias)
 		if pairs[0].alias != "app1" {
 			t.Errorf("Expected alias 'app1', got %q", pairs[0].alias)
@@ -497,7 +497,7 @@ func TestNewEntryFormat(t *testing.T) {
 		if len(pairs[0].keyPEM) == 0 {
 			t.Error("Expected key PEM for first entry")
 		}
-		
+
 		// Verify second entry (cert-only with alias)
 		if pairs[1].alias != "ca" {
 			t.Errorf("Expected alias 'ca', got %q", pairs[1].alias)
@@ -505,7 +505,7 @@ func TestNewEntryFormat(t *testing.T) {
 		if len(pairs[1].keyPEM) != 0 {
 			t.Error("Expected no key PEM for second entry")
 		}
-		
+
 		// Verify third entry (with key, auto-alias)
 		if pairs[2].alias != "server-2" {
 			t.Errorf("Expected alias 'server-2', got %q", pairs[2].alias)

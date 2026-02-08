@@ -30,7 +30,7 @@ type certKeyPair struct {
 // CLI flags
 var (
 	certs         []string // cert:key:alias format
-	caFiles       []string // ca:alias format
+	cas           []string // ca:alias format
 	outputFile    string
 	password      string
 	passwordFile  string
@@ -101,7 +101,7 @@ func init() {
 
 	// Define flags
 	rootCmd.Flags().StringArrayVarP(&certs, "cert", "c", []string{}, "certificate and key entry in format cert.pem[:key.pem[:alias]] (repeatable)")
-	rootCmd.Flags().StringArrayVar(&caFiles, "ca", []string{}, "CA certificate in format ca.pem[:alias] (repeatable)")
+	rootCmd.Flags().StringArrayVar(&cas, "ca", []string{}, "CA certificate in format ca.pem[:alias] (repeatable)")
 	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "output keystore file path (default based on format)")
 	rootCmd.Flags().StringVarP(&password, "password", "p", "", "keystore password (or use KEYSTORE_PASSWORD env)")
 	rootCmd.Flags().StringVar(&passwordFile, "password-file", "", "file containing keystore password")
@@ -151,7 +151,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse CA certificates
-	caPairs, err := parseCAs(caFiles)
+	caPairs, err := parseCAs(cas)
 	if err != nil {
 		return err
 	}
@@ -375,24 +375,24 @@ func createPKCS12Keystore(pairs []certKeyPair, caPairs []certKeyPair, password s
 // parseCerts parses the --cert flag format: cert.pem[:key.pem[:alias]]
 func parseCerts(certs []string) ([]certKeyPair, error) {
 	var pairs []certKeyPair
-	
+
 	for i, cert := range certs {
 		parts := strings.Split(cert, ":")
 		if len(parts) < 1 || len(parts) > 3 {
 			return nil, fmt.Errorf("invalid cert format %q (expected cert.pem[:key.pem[:alias]])", cert)
 		}
-		
+
 		certFile := parts[0]
 		if certFile == "" {
 			return nil, fmt.Errorf("certificate file cannot be empty in cert %q", cert)
 		}
-		
+
 		// Read certificate
 		certPEM, err := os.ReadFile(certFile)
 		if err != nil {
 			return nil, fmt.Errorf("reading certificate file %s: %w", certFile, err)
 		}
-		
+
 		// Read key if provided
 		var keyPEM []byte
 		if len(parts) > 1 && parts[1] != "" {
@@ -401,7 +401,7 @@ func parseCerts(certs []string) ([]certKeyPair, error) {
 				return nil, fmt.Errorf("reading private key file %s: %w", parts[1], err)
 			}
 		}
-		
+
 		// Get alias or generate default
 		alias := ""
 		if len(parts) > 2 && parts[2] != "" {
@@ -413,38 +413,38 @@ func parseCerts(certs []string) ([]certKeyPair, error) {
 				alias = fmt.Sprintf("server-%d", i)
 			}
 		}
-		
+
 		pairs = append(pairs, certKeyPair{
 			certPEM: certPEM,
 			keyPEM:  keyPEM,
 			alias:   alias,
 		})
 	}
-	
+
 	return pairs, nil
 }
 
 // parseCAs parses the --ca flag format: ca.pem[:alias]
-func parseCAs(caFiles []string) ([]certKeyPair, error) {
+func parseCAs(cas []string) ([]certKeyPair, error) {
 	var pairs []certKeyPair
-	
-	for i, ca := range caFiles {
+
+	for i, ca := range cas {
 		parts := strings.Split(ca, ":")
 		if len(parts) < 1 || len(parts) > 2 {
 			return nil, fmt.Errorf("invalid CA format %q (expected ca.pem[:alias])", ca)
 		}
-		
+
 		caFile := parts[0]
 		if caFile == "" {
 			return nil, fmt.Errorf("CA certificate file cannot be empty in ca %q", ca)
 		}
-		
+
 		// Read CA certificate
 		caPEM, err := os.ReadFile(caFile)
 		if err != nil {
 			return nil, fmt.Errorf("reading CA certificate file %s: %w", caFile, err)
 		}
-		
+
 		// Get alias or generate default
 		alias := ""
 		if len(parts) > 1 && parts[1] != "" {
@@ -456,14 +456,14 @@ func parseCAs(caFiles []string) ([]certKeyPair, error) {
 				alias = fmt.Sprintf("ca-%d", i)
 			}
 		}
-		
+
 		pairs = append(pairs, certKeyPair{
 			certPEM: caPEM,
 			keyPEM:  nil, // CAs don't have private keys
 			alias:   alias,
 		})
 	}
-	
+
 	return pairs, nil
 }
 

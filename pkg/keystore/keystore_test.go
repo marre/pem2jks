@@ -261,7 +261,7 @@ func TestJKSPrivateKeyEncryption(t *testing.T) {
 	// Helper function to verify ASN.1 structure
 	verifyASN1Structure := func(t *testing.T, encapsulated []byte, expectedData []byte) {
 		t.Helper()
-		
+
 		var epki struct {
 			Algo struct {
 				Algorithm  asn1.ObjectIdentifier

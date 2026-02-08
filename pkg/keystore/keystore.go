@@ -365,7 +365,7 @@ func readUTF(r io.Reader) (string, error) {
 	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
 		return "", err
 	}
-	
+
 	// Sanity check: UTF-8 strings in JKS are typically aliases or cert types,
 	// which should be reasonably short. 64KB is already the max for uint16,
 	// but we add explicit validation for clarity.
@@ -373,7 +373,7 @@ func readUTF(r io.Reader) (string, error) {
 	if length > maxUTFLength {
 		return "", fmt.Errorf("UTF string length %d exceeds maximum %d", length, maxUTFLength)
 	}
-	
+
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {
 		return "", err
@@ -387,7 +387,7 @@ func readBytes(r io.Reader) ([]byte, error) {
 	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
 		return nil, err
 	}
-	
+
 	// Sanity check: prevent excessive allocations from corrupted/malicious data.
 	// Certificate chains and encrypted keys are typically < 64KB.
 	// We allow up to 10MB as a reasonable maximum for large cert chains.
@@ -395,7 +395,7 @@ func readBytes(r io.Reader) ([]byte, error) {
 	if length > maxBytesLength {
 		return nil, fmt.Errorf("byte array length %d exceeds maximum %d", length, maxBytesLength)
 	}
-	
+
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {
 		return nil, err
