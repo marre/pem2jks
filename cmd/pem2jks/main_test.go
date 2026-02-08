@@ -247,11 +247,11 @@ func TestJKSAppendToExisting(t *testing.T) {
 
 	// Create initial JKS with one private key
 	cert1PEM, key1PEM := generateTestCert(t, "app1.example.com")
-	
+
 	pairs1 := []certKeyPair{
 		{certPEM: cert1PEM, keyPEM: key1PEM, alias: "app1"},
 	}
-	
+
 	jksData1, err := createJKSKeystore(pairs1, nil, "changeit", "")
 	if err != nil {
 		t.Fatalf("Failed to create initial JKS: %v", err)
@@ -265,7 +265,7 @@ func TestJKSAppendToExisting(t *testing.T) {
 
 	// Add another private key to the existing JKS
 	cert2PEM, key2PEM := generateTestCert(t, "app2.example.com")
-	
+
 	pairs2 := []certKeyPair{
 		{certPEM: cert2PEM, keyPEM: key2PEM, alias: "app2"},
 	}
@@ -310,11 +310,11 @@ func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
 
 	// Create initial JKS with a private key
 	certPEM, keyPEM := generateTestCert(t, "app.example.com")
-	
+
 	pairs := []certKeyPair{
 		{certPEM: certPEM, keyPEM: keyPEM, alias: "app"},
 	}
-	
+
 	jksData1, err := createJKSKeystore(pairs, nil, "changeit", "")
 	if err != nil {
 		t.Fatalf("Failed to create initial JKS: %v", err)

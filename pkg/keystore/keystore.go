@@ -167,11 +167,6 @@ func (ks *JKS) Marshal(password string) ([]byte, error) {
 
 // Unmarshal deserializes a JKS keystore from bytes
 func (ks *JKS) Unmarshal(data []byte, password string) error {
-	if len(data) < 20 {
-		return errors.New("JKS data too short")
-	}
-
-	// Split data and signature
 	// Last 20 bytes are the SHA1 integrity hash
 	if len(data) < 20 {
 		return errors.New("JKS file too short for integrity hash")
