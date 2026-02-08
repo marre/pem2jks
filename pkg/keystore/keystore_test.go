@@ -600,7 +600,7 @@ func TestJKSUnmarshalWrongPassword(t *testing.T) {
 		t.Error("Expected error when unmarshaling with wrong password, got nil")
 	}
 	if err != nil && !bytes.Contains([]byte(err.Error()), []byte("integrity check failed")) {
-		t.Logf("Got expected error: %v", err)
+		t.Fatalf("Expected error containing %q, got: %v", "integrity check failed", err)
 	}
 }
 
