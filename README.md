@@ -164,10 +164,10 @@ spec:
   - name: cert-converter
     image: ghcr.io/marre/pem2jks:latest
     args:
-      - --cert=/certs/tls.crt
-      - --key=/certs/tls.key
-      - --ca=/certs/ca.crt
-      - --alias=myapp
+      - -c
+      - /certs/tls.crt:/certs/tls.key:myapp
+      - --ca
+      - /certs/ca.crt
       - --password-file=/secrets/keystore-password
       - --output=/keystore/keystore.p12
       - --format=pkcs12
@@ -185,7 +185,7 @@ spec:
     image: my-java-app:latest
     env:
     - name: JAVA_OPTS
-      value: "-Djavax.net.ssl.keyStore=/keystore/keystore.jks -Djavax.net.ssl.keyStorePassword=changeit"
+      value: "-Djavax.net.ssl.keyStore=/keystore/keystore.p12 -Djavax.net.ssl.keyStorePassword=changeit"
     volumeMounts:
     - name: keystore
       mountPath: /keystore
