@@ -68,7 +68,7 @@ func TestCreateJKSKeystoreMultipleCerts(t *testing.T) {
 	}
 
 	// Create JKS keystore
-	jksData, err := createJKSKeystore(pairs, nil, "changeit", "")
+	jksData, err := createJKSKeystore(pairs, nil, "changeit", "", "changeit")
 	if err != nil {
 		t.Fatalf("Failed to create JKS keystore: %v", err)
 	}
@@ -93,13 +93,16 @@ func TestCreatePKCS12KeystoreWithCA(t *testing.T) {
 	certPEM, keyPEM := generateTestCert(t, "app.example.com")
 	caPEM, _ := generateTestCert(t, "CA")
 
-	// Prepare cert/key pair
+	// Prepare cert/key pair and CA
 	pairs := []certKeyPair{
 		{certPEM: certPEM, keyPEM: keyPEM, alias: "app"},
 	}
+	caPairs := []certKeyPair{
+		{certPEM: caPEM, alias: "ca"},
+	}
 
 	// Create PKCS#12 keystore with CA
-	p12Data, err := createPKCS12Keystore(pairs, caPEM, "changeit", "", false)
+	p12Data, err := createPKCS12Keystore(pairs, caPairs, "changeit", "", "changeit", false)
 	if err != nil {
 		t.Fatalf("Failed to create PKCS#12 keystore: %v", err)
 	}
@@ -137,7 +140,7 @@ func TestPKCS12AppendToTruststore(t *testing.T) {
 		{certPEM: ca1PEM, keyPEM: nil, alias: "ca1"},
 	}
 
-	p12Data1, err := createPKCS12Keystore(pairs1, nil, "changeit", "", false)
+	p12Data1, err := createPKCS12Keystore(pairs1, nil, "changeit", "", "changeit", false)
 	if err != nil {
 		t.Fatalf("Failed to create initial PKCS#12: %v", err)
 	}
@@ -156,7 +159,7 @@ func TestPKCS12AppendToTruststore(t *testing.T) {
 	}
 
 	// Append to existing truststore
-	p12Data2, err := createPKCS12Keystore(pairs2, nil, "changeit", inputFile, false)
+	p12Data2, err := createPKCS12Keystore(pairs2, nil, "changeit", inputFile, "changeit", false)
 	if err != nil {
 		t.Fatalf("Failed to append to PKCS#12: %v", err)
 	}
@@ -189,7 +192,7 @@ func TestPKCS12OnlyOnePrivateKey(t *testing.T) {
 		{certPEM: cert2PEM, keyPEM: key2PEM, alias: "app2"},
 	}
 
-	_, err := createPKCS12Keystore(pairs, nil, "changeit", "", false)
+	_, err := createPKCS12Keystore(pairs, nil, "changeit", "", "changeit", false)
 	if err == nil {
 		t.Error("Expected error when creating PKCS#12 with multiple private keys, got nil")
 	}
@@ -203,11 +206,14 @@ func TestMultipleCAFiles(t *testing.T) {
 	ca1PEM, _ := generateTestCert(t, "CA1")
 	ca2PEM, _ := generateTestCert(t, "CA2")
 
-	// Combine CA PEMs
-	allCAPEM := append(ca1PEM, ca2PEM...)
+	// Create CA pairs
+	caPairs := []certKeyPair{
+		{certPEM: ca1PEM, alias: "ca1"},
+		{certPEM: ca2PEM, alias: "ca2"},
+	}
 
 	// Create JKS truststore with multiple CAs
-	jksData, err := createJKSKeystore(nil, allCAPEM, "changeit", "")
+	jksData, err := createJKSKeystore(nil, caPairs, "changeit", "", "changeit")
 	if err != nil {
 		t.Fatalf("Failed to create JKS with multiple CAs: %v", err)
 	}
@@ -229,7 +235,7 @@ func TestJKSAppendToExisting(t *testing.T) {
 		{certPEM: cert1PEM, keyPEM: key1PEM, alias: "app1"},
 	}
 
-	jksData1, err := createJKSKeystore(pairs1, nil, "changeit", "")
+	jksData1, err := createJKSKeystore(pairs1, nil, "changeit", "", "changeit")
 	if err != nil {
 		t.Fatalf("Failed to create initial JKS: %v", err)
 	}
@@ -248,7 +254,7 @@ func TestJKSAppendToExisting(t *testing.T) {
 	}
 
 	// Append to existing JKS
-	jksData2, err := createJKSKeystore(pairs2, nil, "changeit", inputFile)
+	jksData2, err := createJKSKeystore(pairs2, nil, "changeit", inputFile, "changeit")
 	if err != nil {
 		t.Fatalf("Failed to append to JKS: %v", err)
 	}
@@ -292,7 +298,7 @@ func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
 		{certPEM: certPEM, keyPEM: keyPEM, alias: "app"},
 	}
 
-	jksData1, err := createJKSKeystore(pairs, nil, "changeit", "")
+	jksData1, err := createJKSKeystore(pairs, nil, "changeit", "", "changeit")
 	if err != nil {
 		t.Fatalf("Failed to create initial JKS: %v", err)
 	}
@@ -306,10 +312,14 @@ func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
 	// Add CA certificates to the existing JKS
 	ca1PEM, _ := generateTestCert(t, "CA1")
 	ca2PEM, _ := generateTestCert(t, "CA2")
-	allCAPEM := append(ca1PEM, ca2PEM...)
+	
+	caPairs := []certKeyPair{
+		{certPEM: ca1PEM, alias: "ca1"},
+		{certPEM: ca2PEM, alias: "ca2"},
+	}
 
 	// Append CAs to existing JKS
-	jksData2, err := createJKSKeystore(nil, allCAPEM, "changeit", inputFile)
+	jksData2, err := createJKSKeystore(nil, caPairs, "changeit", inputFile, "changeit")
 	if err != nil {
 		t.Fatalf("Failed to append CAs to JKS: %v", err)
 	}
@@ -380,12 +390,12 @@ func TestNewEntryFormat(t *testing.T) {
 	
 	// Test 1: cert:key:alias format
 	t.Run("cert_key_alias", func(t *testing.T) {
-		entries = []string{cert1File + ":" + key1File + ":myapp"}
-		defer func() { entries = nil }()
+		certs = []string{cert1File + ":" + key1File + ":myapp"}
+		defer func() { certs = nil }()
 		
-		pairs, err := parseEntries(entries)
+		pairs, err := parseCerts(certs)
 		if err != nil {
-			t.Fatalf("parseEntries failed: %v", err)
+			t.Fatalf("parseCerts failed: %v", err)
 		}
 		
 		if len(pairs) != 1 {
@@ -404,12 +414,12 @@ func TestNewEntryFormat(t *testing.T) {
 	
 	// Test 2: cert:key (auto-generate alias)
 	t.Run("cert_key_autoalias", func(t *testing.T) {
-		entries = []string{cert1File + ":" + key1File}
-		defer func() { entries = nil }()
+		certs = []string{cert1File + ":" + key1File}
+		defer func() { certs = nil }()
 		
-		pairs, err := parseEntries(entries)
+		pairs, err := parseCerts(certs)
 		if err != nil {
-			t.Fatalf("parseEntries failed: %v", err)
+			t.Fatalf("parseCerts failed: %v", err)
 		}
 		
 		if len(pairs) != 1 {
@@ -422,12 +432,12 @@ func TestNewEntryFormat(t *testing.T) {
 	
 	// Test 3: cert:: (cert-only with auto-generated alias)
 	t.Run("cert_only", func(t *testing.T) {
-		entries = []string{cert2File + "::"}
-		defer func() { entries = nil }()
+		certs = []string{cert2File + "::"}
+		defer func() { certs = nil }()
 		
-		pairs, err := parseEntries(entries)
+		pairs, err := parseCerts(certs)
 		if err != nil {
-			t.Fatalf("parseEntries failed: %v", err)
+			t.Fatalf("parseCerts failed: %v", err)
 		}
 		
 		if len(pairs) != 1 {
@@ -443,12 +453,12 @@ func TestNewEntryFormat(t *testing.T) {
 	
 	// Test 4: cert::alias (cert-only with explicit alias)
 	t.Run("cert_only_alias", func(t *testing.T) {
-		entries = []string{cert2File + "::myca"}
-		defer func() { entries = nil }()
+		certs = []string{cert2File + "::myca"}
+		defer func() { certs = nil }()
 		
-		pairs, err := parseEntries(entries)
+		pairs, err := parseCerts(certs)
 		if err != nil {
-			t.Fatalf("parseEntries failed: %v", err)
+			t.Fatalf("parseCerts failed: %v", err)
 		}
 		
 		if len(pairs) != 1 {
@@ -464,16 +474,16 @@ func TestNewEntryFormat(t *testing.T) {
 	
 	// Test 5: Multiple mixed entries
 	t.Run("mixed_entries", func(t *testing.T) {
-		entries = []string{
+		certs = []string{
 			cert1File + ":" + key1File + ":app1",
 			cert2File + "::ca",
 			cert3File + ":" + key3File, // auto-alias should be "server-2"
 		}
-		defer func() { entries = nil }()
+		defer func() { certs = nil }()
 		
-		pairs, err := parseEntries(entries)
+		pairs, err := parseCerts(certs)
 		if err != nil {
-			t.Fatalf("parseEntries failed: %v", err)
+			t.Fatalf("parseCerts failed: %v", err)
 		}
 		
 		if len(pairs) != 3 {
