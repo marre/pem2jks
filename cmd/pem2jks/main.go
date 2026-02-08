@@ -29,13 +29,14 @@ type certKeyPair struct {
 
 // CLI flags
 var (
-	certFiles    []string
-	keyFiles     []string
+	entries      []string // New: cert:key:alias format
+	certFiles    []string // Deprecated: kept for backward compatibility
+	keyFiles     []string // Deprecated: kept for backward compatibility
 	caFiles      []string
 	outputFile   string
 	password     string
 	passwordFile string
-	aliases      []string
+	aliases      []string // Deprecated: kept for backward compatibility
 	format       string
 	legacy       bool
 	inputFile    string
@@ -57,29 +58,35 @@ It is designed for use in Kubernetes environments where certificates are
 typically provided in PEM format (e.g., from cert-manager) but Java
 applications require JKS or PKCS#12 keystores.`,
 	Example: `  # Create JKS keystore with private key and certificate
-  pem2jks -c tls.crt -k tls.key -p changeit -o keystore.jks
+  pem2jks -e tls.crt:tls.key -p changeit -o keystore.jks
 
   # Create PKCS#12 keystore (modern format)
-  pem2jks -c tls.crt -k tls.key -p changeit -f pkcs12
+  pem2jks -e tls.crt:tls.key -p changeit -f pkcs12
 
   # Create PKCS#12 with legacy algorithms for older Java
-  pem2jks -c tls.crt -k tls.key -p changeit -f pkcs12 --legacy
+  pem2jks -e tls.crt:tls.key -p changeit -f pkcs12 --legacy
 
-  # Create keystore with multiple cert/key pairs
-  pem2jks -c app1.crt -k app1.key -a app1 -c app2.crt -k app2.key -a app2 -p changeit
+  # Create keystore with multiple cert/key pairs and custom aliases
+  pem2jks -e app1.crt:app1.key:app1 -e app2.crt:app2.key:app2 -p changeit
+
+  # Mix private key entry with cert-only entries
+  pem2jks -e tls.crt:tls.key:server -e ca1.crt::ca1 -e ca2.crt::ca2 -p changeit
 
   # Add certificates to existing PKCS#12 keystore
-  pem2jks --input existing.p12 -c new.crt -k new.key -a newcert -p changeit
+  pem2jks --input existing.p12 -e new.crt:new.key:newcert -p changeit
 
   # Create keystore with certificate chain and CAs
-  pem2jks -c tls.crt -k tls.key --ca ca1.crt --ca ca2.crt -p changeit
+  pem2jks -e tls.crt:tls.key --ca ca1.crt --ca ca2.crt -p changeit
 
   # Create truststore (CA certs only, no private key)
   pem2jks --ca ca.crt -p changeit -f pkcs12 -o truststore.p12
 
   # Use environment variable for password
   export KEYSTORE_PASSWORD=changeit
-  pem2jks -c tls.crt -k tls.key`,
+  pem2jks -e tls.crt:tls.key
+
+  # Legacy format still works (but deprecated)
+  pem2jks -c tls.crt -k tls.key -p changeit`,
 	RunE:          runConvert,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -97,13 +104,14 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 
 	// Define flags
-	rootCmd.Flags().StringArrayVarP(&certFiles, "cert", "c", []string{}, "path to certificate PEM file (repeatable)")
-	rootCmd.Flags().StringArrayVarP(&keyFiles, "key", "k", []string{}, "path to private key PEM file (repeatable)")
+	rootCmd.Flags().StringArrayVarP(&entries, "entry", "e", []string{}, "certificate and key entry in format cert.pem[:key.pem[:alias]] (repeatable)")
+	rootCmd.Flags().StringArrayVarP(&certFiles, "cert", "c", []string{}, "[DEPRECATED] path to certificate PEM file (repeatable, use --entry instead)")
+	rootCmd.Flags().StringArrayVarP(&keyFiles, "key", "k", []string{}, "[DEPRECATED] path to private key PEM file (repeatable, use --entry instead)")
 	rootCmd.Flags().StringArrayVar(&caFiles, "ca", []string{}, "path to CA certificate PEM file (repeatable)")
 	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "output keystore file path (default based on format)")
 	rootCmd.Flags().StringVarP(&password, "password", "p", "", "keystore password (or use KEYSTORE_PASSWORD env)")
 	rootCmd.Flags().StringVar(&passwordFile, "password-file", "", "file containing keystore password")
-	rootCmd.Flags().StringArrayVarP(&aliases, "alias", "a", []string{}, "alias for the private key entry (repeatable, default: server, server-1, ...)")
+	rootCmd.Flags().StringArrayVarP(&aliases, "alias", "a", []string{}, "[DEPRECATED] alias for the private key entry (repeatable, use --entry instead)")
 	rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
 	rootCmd.Flags().BoolVar(&legacy, "legacy", false, "use legacy algorithms for PKCS#12 (for older Java)")
 	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
@@ -130,53 +138,33 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check for conflicting flag usage
+	if len(entries) > 0 && (len(certFiles) > 0 || len(keyFiles) > 0 || len(aliases) > 0) {
+		return fmt.Errorf("cannot mix --entry with deprecated --cert/--key/--alias flags")
+	}
+
 	// Get password
 	keystorePassword := getPassword()
 	if keystorePassword == "" {
 		return fmt.Errorf("password is required (use -p/--password, --password-file, or KEYSTORE_PASSWORD env)")
 	}
 
-	// Validate cert/key pairs match
-	if len(certFiles) != len(keyFiles) && len(keyFiles) > 0 {
-		return fmt.Errorf("number of --cert flags (%d) must match number of --key flags (%d)", len(certFiles), len(keyFiles))
-	}
-
-	// Generate aliases if not provided
-	generatedAliases := make([]string, len(certFiles))
-	for i := range certFiles {
-		if i < len(aliases) && aliases[i] != "" {
-			generatedAliases[i] = aliases[i]
-		} else {
-			if i == 0 {
-				generatedAliases[i] = "server"
-			} else {
-				generatedAliases[i] = fmt.Sprintf("server-%d", i)
-			}
-		}
-	}
-
-	// Read cert/key pairs
+	// Parse entries into cert/key pairs
 	var pairs []certKeyPair
+	var err error
 
-	for i := range certFiles {
-		certPEM, err := os.ReadFile(certFiles[i])
+	if len(entries) > 0 {
+		// New entry format
+		pairs, err = parseEntries(entries)
 		if err != nil {
-			return fmt.Errorf("reading certificate file %s: %w", certFiles[i], err)
+			return err
 		}
-
-		var keyPEM []byte
-		if i < len(keyFiles) && keyFiles[i] != "" {
-			keyPEM, err = os.ReadFile(keyFiles[i])
-			if err != nil {
-				return fmt.Errorf("reading private key file %s: %w", keyFiles[i], err)
-			}
+	} else {
+		// Legacy format: separate cert/key/alias flags
+		pairs, err = parseLegacyFlags(certFiles, keyFiles, aliases)
+		if err != nil {
+			return err
 		}
-
-		pairs = append(pairs, certKeyPair{
-			certPEM: certPEM,
-			keyPEM:  keyPEM,
-			alias:   generatedAliases[i],
-		})
 	}
 
 	// Read CA certificates
@@ -198,7 +186,6 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	// Create keystore based on format
 	var keystoreData []byte
-	var err error
 
 	switch keystoreFormat {
 	case "jks":
@@ -404,6 +391,109 @@ func createPKCS12Keystore(pairs []certKeyPair, caPEM []byte, password string, in
 		return ks.MarshalLegacy(password)
 	}
 	return ks.Marshal(password)
+}
+
+// parseEntries parses the new --entry flag format: cert.pem[:key.pem[:alias]]
+func parseEntries(entries []string) ([]certKeyPair, error) {
+	var pairs []certKeyPair
+	
+	for i, entry := range entries {
+		parts := strings.Split(entry, ":")
+		if len(parts) < 1 || len(parts) > 3 {
+			return nil, fmt.Errorf("invalid entry format %q (expected cert.pem[:key.pem[:alias]])", entry)
+		}
+		
+		certFile := parts[0]
+		if certFile == "" {
+			return nil, fmt.Errorf("certificate file cannot be empty in entry %q", entry)
+		}
+		
+		// Read certificate
+		certPEM, err := os.ReadFile(certFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading certificate file %s: %w", certFile, err)
+		}
+		
+		// Read key if provided
+		var keyPEM []byte
+		if len(parts) > 1 && parts[1] != "" {
+			keyPEM, err = os.ReadFile(parts[1])
+			if err != nil {
+				return nil, fmt.Errorf("reading private key file %s: %w", parts[1], err)
+			}
+		}
+		
+		// Get alias or generate default
+		alias := ""
+		if len(parts) > 2 && parts[2] != "" {
+			alias = parts[2]
+		} else {
+			if i == 0 {
+				alias = "server"
+			} else {
+				alias = fmt.Sprintf("server-%d", i)
+			}
+		}
+		
+		pairs = append(pairs, certKeyPair{
+			certPEM: certPEM,
+			keyPEM:  keyPEM,
+			alias:   alias,
+		})
+	}
+	
+	return pairs, nil
+}
+
+// parseLegacyFlags parses the deprecated separate --cert/--key/--alias flags
+func parseLegacyFlags(certFiles, keyFiles, aliases []string) ([]certKeyPair, error) {
+	if len(certFiles) == 0 {
+		return nil, nil
+	}
+	
+	// Validate cert/key pairs match
+	if len(certFiles) != len(keyFiles) && len(keyFiles) > 0 {
+		return nil, fmt.Errorf("number of --cert flags (%d) must match number of --key flags (%d)", len(certFiles), len(keyFiles))
+	}
+	
+	// Generate aliases if not provided
+	generatedAliases := make([]string, len(certFiles))
+	for i := range certFiles {
+		if i < len(aliases) && aliases[i] != "" {
+			generatedAliases[i] = aliases[i]
+		} else {
+			if i == 0 {
+				generatedAliases[i] = "server"
+			} else {
+				generatedAliases[i] = fmt.Sprintf("server-%d", i)
+			}
+		}
+	}
+	
+	// Read cert/key pairs
+	var pairs []certKeyPair
+	for i := range certFiles {
+		certPEM, err := os.ReadFile(certFiles[i])
+		if err != nil {
+			return nil, fmt.Errorf("reading certificate file %s: %w", certFiles[i], err)
+		}
+		
+		var keyPEM []byte
+		if i < len(keyFiles) && keyFiles[i] != "" {
+			keyPEM, err = os.ReadFile(keyFiles[i])
+			if err != nil {
+				return nil, fmt.Errorf("reading private key file %s: %w", keyFiles[i], err)
+			}
+		}
+		
+		pairs = append(pairs, certKeyPair{
+			certPEM: certPEM,
+			keyPEM:  keyPEM,
+			alias:   generatedAliases[i],
+		})
+	}
+	
+	return pairs, nil
 }
 
 func getPassword() string {

@@ -345,3 +345,163 @@ func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
 
 	t.Logf("Successfully appended CAs to JKS with private key, now has %d entries", len(ks.Entries))
 }
+
+// TestNewEntryFormat tests the new --entry flag format
+func TestNewEntryFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// Generate test certificates
+	cert1PEM, key1PEM := generateTestCert(t, "app1.example.com")
+	cert2PEM, _ := generateTestCert(t, "ca.example.com") // No key for CA cert
+	cert3PEM, key3PEM := generateTestCert(t, "app2.example.com")
+	
+	// Write to temp files
+	cert1File := filepath.Join(tmpDir, "app1.crt")
+	key1File := filepath.Join(tmpDir, "app1.key")
+	cert2File := filepath.Join(tmpDir, "ca.crt")
+	cert3File := filepath.Join(tmpDir, "app2.crt")
+	key3File := filepath.Join(tmpDir, "app2.key")
+	
+	if err := os.WriteFile(cert1File, cert1PEM, 0644); err != nil {
+		t.Fatalf("Failed to write cert1: %v", err)
+	}
+	if err := os.WriteFile(key1File, key1PEM, 0644); err != nil {
+		t.Fatalf("Failed to write key1: %v", err)
+	}
+	if err := os.WriteFile(cert2File, cert2PEM, 0644); err != nil {
+		t.Fatalf("Failed to write cert2: %v", err)
+	}
+	if err := os.WriteFile(cert3File, cert3PEM, 0644); err != nil {
+		t.Fatalf("Failed to write cert3: %v", err)
+	}
+	if err := os.WriteFile(key3File, key3PEM, 0644); err != nil {
+		t.Fatalf("Failed to write key3: %v", err)
+	}
+	
+	// Test 1: cert:key:alias format
+	t.Run("cert_key_alias", func(t *testing.T) {
+		entries = []string{cert1File + ":" + key1File + ":myapp"}
+		defer func() { entries = nil }()
+		
+		pairs, err := parseEntries(entries)
+		if err != nil {
+			t.Fatalf("parseEntries failed: %v", err)
+		}
+		
+		if len(pairs) != 1 {
+			t.Fatalf("Expected 1 pair, got %d", len(pairs))
+		}
+		if pairs[0].alias != "myapp" {
+			t.Errorf("Expected alias 'myapp', got %q", pairs[0].alias)
+		}
+		if len(pairs[0].certPEM) == 0 {
+			t.Error("Expected cert PEM to be populated")
+		}
+		if len(pairs[0].keyPEM) == 0 {
+			t.Error("Expected key PEM to be populated")
+		}
+	})
+	
+	// Test 2: cert:key (auto-generate alias)
+	t.Run("cert_key_autoalias", func(t *testing.T) {
+		entries = []string{cert1File + ":" + key1File}
+		defer func() { entries = nil }()
+		
+		pairs, err := parseEntries(entries)
+		if err != nil {
+			t.Fatalf("parseEntries failed: %v", err)
+		}
+		
+		if len(pairs) != 1 {
+			t.Fatalf("Expected 1 pair, got %d", len(pairs))
+		}
+		if pairs[0].alias != "server" {
+			t.Errorf("Expected alias 'server', got %q", pairs[0].alias)
+		}
+	})
+	
+	// Test 3: cert:: (cert-only with auto-generated alias)
+	t.Run("cert_only", func(t *testing.T) {
+		entries = []string{cert2File + "::"}
+		defer func() { entries = nil }()
+		
+		pairs, err := parseEntries(entries)
+		if err != nil {
+			t.Fatalf("parseEntries failed: %v", err)
+		}
+		
+		if len(pairs) != 1 {
+			t.Fatalf("Expected 1 pair, got %d", len(pairs))
+		}
+		if pairs[0].alias != "server" {
+			t.Errorf("Expected alias 'server', got %q", pairs[0].alias)
+		}
+		if len(pairs[0].keyPEM) != 0 {
+			t.Error("Expected key PEM to be empty for cert-only")
+		}
+	})
+	
+	// Test 4: cert::alias (cert-only with explicit alias)
+	t.Run("cert_only_alias", func(t *testing.T) {
+		entries = []string{cert2File + "::myca"}
+		defer func() { entries = nil }()
+		
+		pairs, err := parseEntries(entries)
+		if err != nil {
+			t.Fatalf("parseEntries failed: %v", err)
+		}
+		
+		if len(pairs) != 1 {
+			t.Fatalf("Expected 1 pair, got %d", len(pairs))
+		}
+		if pairs[0].alias != "myca" {
+			t.Errorf("Expected alias 'myca', got %q", pairs[0].alias)
+		}
+		if len(pairs[0].keyPEM) != 0 {
+			t.Error("Expected key PEM to be empty for cert-only")
+		}
+	})
+	
+	// Test 5: Multiple mixed entries
+	t.Run("mixed_entries", func(t *testing.T) {
+		entries = []string{
+			cert1File + ":" + key1File + ":app1",
+			cert2File + "::ca",
+			cert3File + ":" + key3File, // auto-alias should be "server-2"
+		}
+		defer func() { entries = nil }()
+		
+		pairs, err := parseEntries(entries)
+		if err != nil {
+			t.Fatalf("parseEntries failed: %v", err)
+		}
+		
+		if len(pairs) != 3 {
+			t.Fatalf("Expected 3 pairs, got %d", len(pairs))
+		}
+		
+		// Verify first entry (with key and alias)
+		if pairs[0].alias != "app1" {
+			t.Errorf("Expected alias 'app1', got %q", pairs[0].alias)
+		}
+		if len(pairs[0].keyPEM) == 0 {
+			t.Error("Expected key PEM for first entry")
+		}
+		
+		// Verify second entry (cert-only with alias)
+		if pairs[1].alias != "ca" {
+			t.Errorf("Expected alias 'ca', got %q", pairs[1].alias)
+		}
+		if len(pairs[1].keyPEM) != 0 {
+			t.Error("Expected no key PEM for second entry")
+		}
+		
+		// Verify third entry (with key, auto-alias)
+		if pairs[2].alias != "server-2" {
+			t.Errorf("Expected alias 'server-2', got %q", pairs[2].alias)
+		}
+		if len(pairs[2].keyPEM) == 0 {
+			t.Error("Expected key PEM for third entry")
+		}
+	})
+}
