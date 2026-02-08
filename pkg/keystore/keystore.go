@@ -228,6 +228,10 @@ func (ks *JKS) Unmarshal(data []byte, password string) error {
 		}
 	}
 
+	// Ensure there is no unexpected trailing data in the keystore payload
+	if r.Len() != 0 {
+		return fmt.Errorf("unexpected trailing data in JKS keystore: %d bytes", r.Len())
+	}
 	return nil
 }
 
