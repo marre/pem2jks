@@ -372,7 +372,11 @@ func createPKCS12Keystore(pairs []certKeyPair, caPEM []byte, password string, in
 			}
 		} else if len(certChain) > 0 {
 			for _, cert := range certChain {
-				ks.AddTrustedCert(cert)
+				if ks.PrivateKey != nil {
+					ks.AddCACert(cert)
+				} else {
+					ks.AddTrustedCert(cert)
+				}
 			}
 		}
 	}
