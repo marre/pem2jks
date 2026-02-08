@@ -33,17 +33,17 @@ echo "====== JKS Format Tests ======"
 echo ""
 
 echo "Test 1: Create JKS keystore with private key"
-"$BINARY" -c tls.crt -k tls.key -p changeit -a server -o test1.jks -f jks
+"$BINARY" -c tls.crt:tls.key:server -p changeit -o test1.jks -f jks
 echo "  Created test1.jks"
 
 echo ""
 echo "Test 2: Create JKS keystore with private key and CA"
-"$BINARY" -c tls.crt -k tls.key --ca ca.crt -p changeit -a server -o test2.jks -f jks
+"$BINARY" -c tls.crt:tls.key:server --ca ca.crt -p changeit -o test2.jks -f jks
 echo "  Created test2.jks"
 
 echo ""
 echo "Test 3: Create JKS truststore (CA only)"
-"$BINARY" --ca ca.crt -p changeit -a ca -o truststore.jks -f jks
+"$BINARY" --ca ca.crt:ca -p changeit -o truststore.jks -f jks
 echo "  Created truststore.jks"
 
 echo ""
@@ -69,17 +69,17 @@ echo "====== PKCS#12 Format Tests ======"
 echo ""
 
 echo "Test 5: Create PKCS#12 keystore with private key"
-"$BINARY" -c tls.crt -k tls.key -p changeit -a server -o test1.p12 -f pkcs12
+"$BINARY" -c tls.crt:tls.key:server -p changeit -o test1.p12 -f pkcs12
 echo "  Created test1.p12"
 
 echo ""
 echo "Test 6: Create PKCS#12 keystore with private key and CA"
-"$BINARY" -c tls.crt -k tls.key --ca ca.crt -p changeit -a server -o test2.p12 -f pkcs12
+"$BINARY" -c tls.crt:tls.key:server --ca ca.crt -p changeit -o test2.p12 -f pkcs12
 echo "  Created test2.p12"
 
 echo ""
 echo "Test 7: Create PKCS#12 truststore (CA only)"
-"$BINARY" --ca ca.crt -p changeit -a ca -o truststore.p12 -f pkcs12
+"$BINARY" --ca ca.crt:ca -p changeit -o truststore.p12 -f pkcs12
 echo "  Created truststore.p12"
 
 echo ""
@@ -105,7 +105,7 @@ echo "====== PKCS#12 Legacy Format Tests ======"
 echo ""
 
 echo "Test 9: Create PKCS#12 keystore with legacy algorithms"
-"$BINARY" -c tls.crt -k tls.key -p changeit -a server -o test-legacy.p12 -f pkcs12 --legacy
+"$BINARY" -c tls.crt:tls.key:server -p changeit -o test-legacy.p12 -f pkcs12 --legacy
 echo "  Created test-legacy.p12"
 
 echo ""
@@ -123,8 +123,8 @@ echo "====== Multiple PEM Files Tests ======"
 echo ""
 
 echo "Test 11: Create JKS with multiple cert/key pairs"
-"$BINARY" -c tls.crt -k tls.key -a server1 \
-          -c tls.crt -k tls.key -a server2 \
+"$BINARY" -c tls.crt:tls.key:server1 \
+          -c tls.crt:tls.key:server2 \
           -p changeit -o multi-keys.jks -f jks
 echo "  Created multi-keys.jks"
 
@@ -172,12 +172,12 @@ echo "====== JKS Append Tests ======"
 echo ""
 
 echo "Test 15: Create initial JKS with one private key"
-"$BINARY" -c tls.crt -k tls.key -a initial-key -p changeit -o append-test.jks -f jks
+"$BINARY" -c tls.crt:tls.key:initial-key -p changeit -o append-test.jks -f jks
 echo "  Created append-test.jks with 1 entry"
 
 echo ""
 echo "Test 16: Append another private key to existing JKS"
-"$BINARY" --input append-test.jks -c tls.crt -k tls.key -a appended-key -p changeit -o append-test.jks -f jks
+"$BINARY" --input append-test.jks -c tls.crt:tls.key:appended-key -p changeit -o append-test.jks -f jks
 echo "  Appended to append-test.jks"
 
 echo ""
@@ -229,7 +229,7 @@ echo "  Created append-test.p12 with 1 CA entry"
 
 echo ""
 echo "Test 21: Append another CA to existing PKCS#12"
-"$BINARY" --input append-test.p12 -c tls.crt -p changeit -o append-test.p12 -f pkcs12
+"$BINARY" --input append-test.p12 -c tls.crt:: -p changeit -o append-test.p12 -f pkcs12
 echo "  Appended certificate to append-test.p12"
 
 echo ""
