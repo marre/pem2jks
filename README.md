@@ -154,6 +154,8 @@ For more details about image signing, verification, and Kubernetes admission con
 
 ### As an Init Container
 
+#### PKCS#12 Format
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -161,44 +163,102 @@ metadata:
   name: java-app
 spec:
   initContainers:
-  - name: cert-converter
-    image: ghcr.io/marre/pem2jks:latest
-    args:
-      - --cert=/certs/tls.crt
-      - --key=/certs/tls.key
-      - --ca=/certs/ca.crt
-      - --alias=myapp
-      - --password-file=/secrets/keystore-password
-      - --output=/keystore/keystore.p12
-      - --format=pkcs12
-    volumeMounts:
-    - name: certs
-      mountPath: /certs
-      readOnly: true
-    - name: keystore
-      mountPath: /keystore
-    - name: secrets
-      mountPath: /secrets
-      readOnly: true
+    - name: cert-converter
+      image: ghcr.io/marre/pem2jks:latest
+      args:
+        - -c
+        - /certs/tls.crt:/certs/tls.key:myapp
+        - --ca
+        - /certs/ca.crt
+        - --password-file=/secrets/keystore-password
+        - --output=/keystore/keystore.p12
+        - --format=pkcs12
+      volumeMounts:
+        - name: certs
+          mountPath: /certs
+          readOnly: true
+        - name: keystore
+          mountPath: /keystore
+        - name: secrets
+          mountPath: /secrets
+          readOnly: true
   containers:
-  - name: java-app
-    image: my-java-app:latest
-    env:
-    - name: JAVA_OPTS
-      value: "-Djavax.net.ssl.keyStore=/keystore/keystore.jks -Djavax.net.ssl.keyStorePassword=changeit"
-    volumeMounts:
-    - name: keystore
-      mountPath: /keystore
-      readOnly: true
+    - name: java-app
+      image: my-java-app:latest
+      env:
+        - name: KEYSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keystore-password
+              key: password
+        - name: JAVA_OPTS
+          value: "-Djavax.net.ssl.keyStore=/keystore/keystore.p12 -Djavax.net.ssl.keyStorePassword=$(KEYSTORE_PASSWORD)"
+      volumeMounts:
+        - name: keystore
+          mountPath: /keystore
+          readOnly: true
   volumes:
-  - name: certs
-    secret:
-      secretName: my-tls-cert  # Created by cert-manager
-  - name: keystore
-    emptyDir: {}
-  - name: secrets
-    secret:
-      secretName: keystore-password
+    - name: certs
+      secret:
+        secretName: my-tls-cert  # Created by cert-manager
+    - name: keystore
+      emptyDir: {}
+    - name: secrets
+      secret:
+        secretName: keystore-password
+```
+
+#### JKS Format
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: java-app
+spec:
+  initContainers:
+    - name: cert-converter
+      image: ghcr.io/marre/pem2jks:latest
+      args:
+        - -c
+        - /certs/tls.crt:/certs/tls.key:myapp
+        - --ca
+        - /certs/ca.crt
+        - --password-file=/secrets/keystore-password
+        - --output=/keystore/keystore.jks
+      volumeMounts:
+        - name: certs
+          mountPath: /certs
+          readOnly: true
+        - name: keystore
+          mountPath: /keystore
+        - name: secrets
+          mountPath: /secrets
+          readOnly: true
+  containers:
+    - name: java-app
+      image: my-java-app:latest
+      env:
+        - name: KEYSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keystore-password
+              key: password
+        - name: JAVA_OPTS
+          value: "-Djavax.net.ssl.keyStore=/keystore/keystore.jks -Djavax.net.ssl.keyStorePassword=$(KEYSTORE_PASSWORD)"
+      volumeMounts:
+        - name: keystore
+          mountPath: /keystore
+          readOnly: true
+  volumes:
+    - name: certs
+      secret:
+        secretName: my-tls-cert  # Created by cert-manager
+    - name: keystore
+      emptyDir: {}
+    - name: secrets
+      secret:
+        secretName: keystore-password
 ```
 
 ### With cert-manager Certificate
