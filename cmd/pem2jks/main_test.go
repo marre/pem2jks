@@ -58,32 +58,9 @@ func generateTestCert(t *testing.T, cn string) (certPEM, keyPEM []byte) {
 }
 
 func TestCreateJKSKeystoreMultipleCerts(t *testing.T) {
-	// Create temp directory for test files
-	tempDir := t.TempDir()
-
 	// Generate test certificates
 	cert1PEM, key1PEM := generateTestCert(t, "app1.example.com")
 	cert2PEM, key2PEM := generateTestCert(t, "app2.example.com")
-
-	// Write to files
-	cert1File := filepath.Join(tempDir, "cert1.pem")
-	key1File := filepath.Join(tempDir, "key1.pem")
-	cert2File := filepath.Join(tempDir, "cert2.pem")
-	key2File := filepath.Join(tempDir, "key2.pem")
-
-	if err := os.WriteFile(cert1File, cert1PEM, 0600); err != nil {
-		t.Fatalf("Failed to write cert1: %v", err)
-	}
-	if err := os.WriteFile(key1File, key1PEM, 0600); err != nil {
-		t.Fatalf("Failed to write key1: %v", err)
-	}
-	if err := os.WriteFile(cert2File, cert2PEM, 0600); err != nil {
-		t.Fatalf("Failed to write cert2: %v", err)
-	}
-	if err := os.WriteFile(key2File, key2PEM, 0600); err != nil {
-		t.Fatalf("Failed to write key2: %v", err)
-	}
-
 	// Prepare cert/key pairs
 	pairs := []certKeyPair{
 		{certPEM: cert1PEM, keyPEM: key1PEM, alias: "app1"},
