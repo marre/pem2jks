@@ -694,6 +694,40 @@ func TestAddPrivateKeyValidation(t *testing.T) {
 			}
 		})
 	}
+
+	// Test alias collision
+	t.Run("alias collision", func(t *testing.T) {
+		ks := NewJKS()
+		// Add first entry
+		if err := ks.AddPrivateKey("test", pkcs8, [][]byte{certDER}); err != nil {
+			t.Fatalf("Failed to add first entry: %v", err)
+		}
+		// Try to add second entry with same alias
+		err := ks.AddPrivateKey("test", pkcs8, [][]byte{certDER})
+		if err == nil {
+			t.Error("Expected error for duplicate alias, got nil")
+		}
+		if err != nil && !bytes.Contains([]byte(err.Error()), []byte("already exists")) {
+			t.Errorf("Expected error about alias already existing, got: %v", err)
+		}
+	})
+
+	// Test case-insensitive alias collision
+	t.Run("case-insensitive alias collision", func(t *testing.T) {
+		ks := NewJKS()
+		// Add first entry with lowercase
+		if err := ks.AddPrivateKey("test", pkcs8, [][]byte{certDER}); err != nil {
+			t.Fatalf("Failed to add first entry: %v", err)
+		}
+		// Try to add second entry with uppercase (should fail)
+		err := ks.AddPrivateKey("TEST", pkcs8, [][]byte{certDER})
+		if err == nil {
+			t.Error("Expected error for case-insensitive duplicate alias, got nil")
+		}
+		if err != nil && !bytes.Contains([]byte(err.Error()), []byte("already exists")) {
+			t.Errorf("Expected error about alias already existing, got: %v", err)
+		}
+	})
 }
 
 // TestAddTrustedCertValidation tests validation in AddTrustedCert
@@ -760,6 +794,40 @@ func TestAddTrustedCertValidation(t *testing.T) {
 			}
 		})
 	}
+
+	// Test alias collision
+	t.Run("alias collision", func(t *testing.T) {
+		ks := NewJKS()
+		// Add first entry
+		if err := ks.AddTrustedCert("test", certDER); err != nil {
+			t.Fatalf("Failed to add first entry: %v", err)
+		}
+		// Try to add second entry with same alias
+		err := ks.AddTrustedCert("test", certDER)
+		if err == nil {
+			t.Error("Expected error for duplicate alias, got nil")
+		}
+		if err != nil && !bytes.Contains([]byte(err.Error()), []byte("already exists")) {
+			t.Errorf("Expected error about alias already existing, got: %v", err)
+		}
+	})
+
+	// Test case-insensitive alias collision
+	t.Run("case-insensitive alias collision", func(t *testing.T) {
+		ks := NewJKS()
+		// Add first entry with lowercase
+		if err := ks.AddTrustedCert("test", certDER); err != nil {
+			t.Fatalf("Failed to add first entry: %v", err)
+		}
+		// Try to add second entry with uppercase (should fail)
+		err := ks.AddTrustedCert("TEST", certDER)
+		if err == nil {
+			t.Error("Expected error for case-insensitive duplicate alias, got nil")
+		}
+		if err != nil && !bytes.Contains([]byte(err.Error()), []byte("already exists")) {
+			t.Errorf("Expected error about alias already existing, got: %v", err)
+		}
+	})
 }
 
 // TestParsePEMInvalidFormats tests error handling in PEM parsing
@@ -825,6 +893,19 @@ func TestUnmarshalCorruptedData(t *testing.T) {
 		t.Fatalf("Failed to marshal JKS: %v", err)
 	}
 
+	// Create a JKS with invalid magic but valid integrity hash
+	invalidMagicData := make([]byte, len(validData))
+	copy(invalidMagicData, validData)
+	// Change magic number (first 4 bytes)
+	invalidMagicData[0] = 0x00
+	invalidMagicData[1] = 0x00
+	invalidMagicData[2] = 0x00
+	invalidMagicData[3] = 0x00
+	// Recompute integrity hash for the modified keystore
+	keystorePayload := invalidMagicData[:len(invalidMagicData)-20]
+	newHash := computeJKSIntegrityHash(keystorePayload, "changeit")
+	copy(invalidMagicData[len(invalidMagicData)-20:], newHash)
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -842,7 +923,7 @@ func TestUnmarshalCorruptedData(t *testing.T) {
 		},
 		{
 			name:    "invalid magic number",
-			data:    append([]byte{0x00, 0x00, 0x00, 0x00}, validData[4:]...),
+			data:    invalidMagicData,
 			wantErr: true,
 		},
 		{

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"software.sslmate.com/src/go-pkcs12"
@@ -68,6 +69,24 @@ func NewJKS() *JKS {
 	}
 }
 
+// hasAlias checks if an alias already exists in the keystore (case-insensitive)
+func (ks *JKS) hasAlias(alias string) bool {
+	lowerAlias := strings.ToLower(alias)
+	for _, entry := range ks.Entries {
+		var entryAlias string
+		switch e := entry.(type) {
+		case PrivateKeyEntry:
+			entryAlias = e.Alias
+		case TrustedCertEntry:
+			entryAlias = e.Alias
+		}
+		if strings.ToLower(entryAlias) == lowerAlias {
+			return true
+		}
+	}
+	return false
+}
+
 // AddPrivateKey adds a private key entry with its certificate chain
 func (ks *JKS) AddPrivateKey(alias string, pkcs8Key []byte, certChain [][]byte) error {
 	return ks.AddPrivateKeyWithTimestamp(alias, pkcs8Key, certChain, time.Now())
@@ -83,6 +102,11 @@ func (ks *JKS) AddPrivateKeyWithTimestamp(alias string, pkcs8Key []byte, certCha
 	}
 	if len(certChain) == 0 {
 		return errors.New("certificate chain cannot be empty")
+	}
+
+	// Check for alias collision (case-insensitive)
+	if ks.hasAlias(alias) {
+		return fmt.Errorf("alias %q already exists in keystore", alias)
 	}
 
 	// Validate certificates
@@ -113,6 +137,11 @@ func (ks *JKS) AddTrustedCertWithTimestamp(alias string, certDER []byte, timesta
 	}
 	if len(certDER) == 0 {
 		return errors.New("certificate cannot be empty")
+	}
+
+	// Check for alias collision (case-insensitive)
+	if ks.hasAlias(alias) {
+		return fmt.Errorf("alias %q already exists in keystore", alias)
 	}
 
 	// Validate certificate
@@ -336,6 +365,15 @@ func readUTF(r io.Reader) (string, error) {
 	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
 		return "", err
 	}
+	
+	// Sanity check: UTF-8 strings in JKS are typically aliases or cert types,
+	// which should be reasonably short. 64KB is already the max for uint16,
+	// but we add explicit validation for clarity.
+	const maxUTFLength = 65535 // max uint16
+	if length > maxUTFLength {
+		return "", fmt.Errorf("UTF string length %d exceeds maximum %d", length, maxUTFLength)
+	}
+	
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {
 		return "", err
@@ -349,6 +387,15 @@ func readBytes(r io.Reader) ([]byte, error) {
 	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
 		return nil, err
 	}
+	
+	// Sanity check: prevent excessive allocations from corrupted/malicious data.
+	// Certificate chains and encrypted keys are typically < 64KB.
+	// We allow up to 10MB as a reasonable maximum for large cert chains.
+	const maxBytesLength = 10 * 1024 * 1024 // 10MB
+	if length > maxBytesLength {
+		return nil, fmt.Errorf("byte array length %d exceeds maximum %d", length, maxBytesLength)
+	}
+	
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {
 		return nil, err
@@ -386,7 +433,7 @@ func decryptJKSPrivateKey(encapsulatedData []byte, password string) ([]byte, err
 	storedCheck := encryptedData[len(encryptedData)-20:]
 
 	// Decrypt the key
-	keystream := jksKeystream(iv, passwordBytes)
+	keystream := jksKeystream(iv, passwordBytes, len(encrypted))
 	plaintext := make([]byte, len(encrypted))
 	for i, b := range encrypted {
 		plaintext[i] = b ^ keystream[i]
@@ -540,7 +587,7 @@ func encryptJKSPrivateKey(pkcs8Key []byte, password string) ([]byte, error) {
 	}
 
 	// XOR key with keystream
-	keystream := jksKeystream(iv, passwordBytes)
+	keystream := jksKeystream(iv, passwordBytes, len(pkcs8Key))
 	encrypted := make([]byte, len(pkcs8Key))
 	for i, b := range pkcs8Key {
 		encrypted[i] = b ^ keystream[i]
@@ -562,10 +609,11 @@ func encryptJKSPrivateKey(pkcs8Key []byte, password string) ([]byte, error) {
 }
 
 // jksKeystream generates a keystream for JKS private key encryption
-func jksKeystream(iv, password []byte) []byte {
+func jksKeystream(iv, password []byte, length int) []byte {
 	var keystream []byte
 	cur := iv
-	for len(keystream) < 10000 {
+	// Generate keystream until we have at least the required length
+	for len(keystream) < length {
 		h := sha1.New()
 		h.Write(password)
 		h.Write(cur)
