@@ -229,7 +229,7 @@ echo "  Created append-test.p12 with 1 CA entry"
 
 echo ""
 echo "Test 21: Append another CA to existing PKCS#12"
-"$BINARY" --input append-test.p12 -c tls.crt:: -p changeit -o append-test.p12 -f pkcs12
+"$BINARY" --input append-test.p12 --ca tls.crt -p changeit -o append-test.p12 -f pkcs12
 echo "  Appended certificate to append-test.p12"
 
 echo ""
