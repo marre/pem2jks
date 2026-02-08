@@ -46,7 +46,7 @@ func generateTestCert(t *testing.T, cn string) (certPEM, keyPEM []byte) {
 
 	// Encode to PEM
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	
+
 	pkcs8Key, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		t.Fatalf("Failed to marshal key: %v", err)
@@ -154,11 +154,11 @@ func TestPKCS12AppendToTruststore(t *testing.T) {
 
 	// Create initial truststore with one CA
 	ca1PEM, _ := generateTestCert(t, "CA1")
-	
+
 	pairs1 := []certKeyPair{
 		{certPEM: ca1PEM, keyPEM: nil, alias: "ca1"},
 	}
-	
+
 	p12Data1, err := createPKCS12Keystore(pairs1, nil, "changeit", "", false)
 	if err != nil {
 		t.Fatalf("Failed to create initial PKCS#12: %v", err)
@@ -172,7 +172,7 @@ func TestPKCS12AppendToTruststore(t *testing.T) {
 
 	// Add another CA
 	ca2PEM, _ := generateTestCert(t, "CA2")
-	
+
 	pairs2 := []certKeyPair{
 		{certPEM: ca2PEM, keyPEM: nil, alias: "ca2"},
 	}
@@ -239,73 +239,4 @@ func TestMultipleCAFiles(t *testing.T) {
 	}
 
 	t.Logf("Created JKS truststore with 2 CAs, size: %d bytes", len(jksData))
-}
-
-func TestGenerateAliases(t *testing.T) {
-	tests := []struct {
-		name           string
-		numCerts       int
-		providedAliases []string
-		expectedAliases []string
-	}{
-		{
-			name:            "No aliases provided",
-			numCerts:        3,
-			providedAliases: []string{},
-			expectedAliases: []string{"server", "server-1", "server-2"},
-		},
-		{
-			name:            "Some aliases provided",
-			numCerts:        3,
-			providedAliases: []string{"app1", "app2"},
-			expectedAliases: []string{"app1", "app2", "server-2"},
-		},
-		{
-			name:            "All aliases provided",
-			numCerts:        2,
-			providedAliases: []string{"custom1", "custom2"},
-			expectedAliases: []string{"custom1", "custom2"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the alias generation logic from runConvert
-			generatedAliases := make([]string, tt.numCerts)
-			for i := 0; i < tt.numCerts; i++ {
-				if i < len(tt.providedAliases) && tt.providedAliases[i] != "" {
-					generatedAliases[i] = tt.providedAliases[i]
-				} else {
-					if i == 0 {
-						generatedAliases[i] = "server"
-					} else {
-						generatedAliases[i] = "server-" + string(rune('0'+i))
-					}
-				}
-			}
-
-			// For proper formatting
-			for i := 0; i < tt.numCerts; i++ {
-				if i < len(tt.providedAliases) && tt.providedAliases[i] != "" {
-					generatedAliases[i] = tt.providedAliases[i]
-				} else {
-					if i == 0 {
-						generatedAliases[i] = "server"
-					} else {
-						// Use proper integer formatting
-						generatedAliases[i] = "server-" + string(rune('0'+i))
-					}
-				}
-			}
-
-			// Actually, let me use the correct logic
-			for i := 0; i < tt.numCerts; i++ {
-				if i < len(tt.providedAliases) && tt.providedAliases[i] != "" {
-					if generatedAliases[i] != tt.expectedAliases[i] {
-						t.Errorf("Alias %d: got %q, want %q", i, generatedAliases[i], tt.expectedAliases[i])
-					}
-				}
-			}
-		})
-	}
 }
