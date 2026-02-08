@@ -451,3 +451,228 @@ func TestJKSTrustedCertAliasCasing(t *testing.T) {
 		t.Errorf("Mixed-case alias %q not found in marshaled JKS output", mixedCaseAlias)
 	}
 }
+
+func TestJKSUnmarshalPrivateKey(t *testing.T) {
+	// Create a JKS with a private key
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("Failed to marshal key to PKCS#8: %v", err)
+	}
+
+	ks := NewJKS()
+	if err := ks.AddPrivateKey("test-key", pkcs8, [][]byte{certDER}); err != nil {
+		t.Fatalf("Failed to add private key: %v", err)
+	}
+
+	// Marshal the JKS
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Unmarshal the JKS
+	ks2 := NewJKS()
+	if err := ks2.Unmarshal(jksData, "changeit"); err != nil {
+		t.Fatalf("Failed to unmarshal JKS: %v", err)
+	}
+
+	// Verify entry count
+	if len(ks2.Entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(ks2.Entries))
+	}
+
+	// Verify entry type and content
+	entry, ok := ks2.Entries[0].(PrivateKeyEntry)
+	if !ok {
+		t.Fatalf("Expected PrivateKeyEntry, got %T", ks2.Entries[0])
+	}
+
+	if entry.Alias != "test-key" {
+		t.Errorf("Expected alias 'test-key', got %q", entry.Alias)
+	}
+
+	if !bytes.Equal(entry.PrivKey, pkcs8) {
+		t.Error("Private key mismatch after unmarshal")
+	}
+
+	if len(entry.CertChain) != 1 {
+		t.Errorf("Expected 1 cert in chain, got %d", len(entry.CertChain))
+	}
+
+	if !bytes.Equal(entry.CertChain[0], certDER) {
+		t.Error("Certificate mismatch after unmarshal")
+	}
+
+	t.Logf("Successfully unmarshaled JKS with private key entry")
+}
+
+func TestJKSUnmarshalTrustedCert(t *testing.T) {
+	// Create a JKS with a trusted certificate
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	ks := NewJKS()
+	if err := ks.AddTrustedCert("trusted-ca", certDER); err != nil {
+		t.Fatalf("Failed to add trusted cert: %v", err)
+	}
+
+	// Marshal the JKS
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Unmarshal the JKS
+	ks2 := NewJKS()
+	if err := ks2.Unmarshal(jksData, "changeit"); err != nil {
+		t.Fatalf("Failed to unmarshal JKS: %v", err)
+	}
+
+	// Verify entry count
+	if len(ks2.Entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(ks2.Entries))
+	}
+
+	// Verify entry type and content
+	entry, ok := ks2.Entries[0].(TrustedCertEntry)
+	if !ok {
+		t.Fatalf("Expected TrustedCertEntry, got %T", ks2.Entries[0])
+	}
+
+	if entry.Alias != "trusted-ca" {
+		t.Errorf("Expected alias 'trusted-ca', got %q", entry.Alias)
+	}
+
+	if !bytes.Equal(entry.Cert, certDER) {
+		t.Error("Certificate mismatch after unmarshal")
+	}
+
+	t.Logf("Successfully unmarshaled JKS with trusted cert entry")
+}
+
+func TestJKSUnmarshalMultipleEntries(t *testing.T) {
+	// Create a JKS with multiple entries
+	key1, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key 1: %v", err)
+	}
+	_, cert1DER := generateTestCert(t, &key1.PublicKey)
+	pkcs8_1, err := x509.MarshalPKCS8PrivateKey(key1)
+	if err != nil {
+		t.Fatalf("Failed to marshal key 1 to PKCS#8: %v", err)
+	}
+
+	key2, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key 2: %v", err)
+	}
+	_, cert2DER := generateTestCert(t, &key2.PublicKey)
+	pkcs8_2, err := x509.MarshalPKCS8PrivateKey(key2)
+	if err != nil {
+		t.Fatalf("Failed to marshal key 2 to PKCS#8: %v", err)
+	}
+
+	key3, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key 3: %v", err)
+	}
+	_, cert3DER := generateTestCert(t, &key3.PublicKey)
+
+	ks := NewJKS()
+	if err := ks.AddPrivateKey("key1", pkcs8_1, [][]byte{cert1DER}); err != nil {
+		t.Fatalf("Failed to add private key 1: %v", err)
+	}
+	if err := ks.AddPrivateKey("key2", pkcs8_2, [][]byte{cert2DER}); err != nil {
+		t.Fatalf("Failed to add private key 2: %v", err)
+	}
+	if err := ks.AddTrustedCert("ca-cert", cert3DER); err != nil {
+		t.Fatalf("Failed to add trusted cert: %v", err)
+	}
+
+	// Marshal the JKS
+	jksData, err := ks.Marshal("changeit")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Unmarshal the JKS
+	ks2 := NewJKS()
+	if err := ks2.Unmarshal(jksData, "changeit"); err != nil {
+		t.Fatalf("Failed to unmarshal JKS: %v", err)
+	}
+
+	// Verify entry count
+	if len(ks2.Entries) != 3 {
+		t.Fatalf("Expected 3 entries, got %d", len(ks2.Entries))
+	}
+
+	// Verify first private key entry
+	entry1, ok := ks2.Entries[0].(PrivateKeyEntry)
+	if !ok {
+		t.Fatalf("Expected entry 0 to be PrivateKeyEntry, got %T", ks2.Entries[0])
+	}
+	if entry1.Alias != "key1" {
+		t.Errorf("Expected alias 'key1', got %q", entry1.Alias)
+	}
+
+	// Verify second private key entry
+	entry2, ok := ks2.Entries[1].(PrivateKeyEntry)
+	if !ok {
+		t.Fatalf("Expected entry 1 to be PrivateKeyEntry, got %T", ks2.Entries[1])
+	}
+	if entry2.Alias != "key2" {
+		t.Errorf("Expected alias 'key2', got %q", entry2.Alias)
+	}
+
+	// Verify trusted cert entry
+	entry3, ok := ks2.Entries[2].(TrustedCertEntry)
+	if !ok {
+		t.Fatalf("Expected entry 2 to be TrustedCertEntry, got %T", ks2.Entries[2])
+	}
+	if entry3.Alias != "ca-cert" {
+		t.Errorf("Expected alias 'ca-cert', got %q", entry3.Alias)
+	}
+
+	t.Logf("Successfully unmarshaled JKS with 2 private keys and 1 trusted cert")
+}
+
+func TestJKSUnmarshalWrongPassword(t *testing.T) {
+	// Create a JKS
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate RSA key: %v", err)
+	}
+	_, certDER := generateTestCert(t, &key.PublicKey)
+
+	ks := NewJKS()
+	if err := ks.AddTrustedCert("test", certDER); err != nil {
+		t.Fatalf("Failed to add trusted cert: %v", err)
+	}
+
+	// Marshal with one password
+	jksData, err := ks.Marshal("correctpassword")
+	if err != nil {
+		t.Fatalf("Failed to marshal JKS: %v", err)
+	}
+
+	// Try to unmarshal with wrong password
+	ks2 := NewJKS()
+	err = ks2.Unmarshal(jksData, "wrongpassword")
+	if err == nil {
+		t.Error("Expected error when unmarshaling with wrong password, got nil")
+	}
+	if err != nil && !bytes.Contains([]byte(err.Error()), []byte("integrity check failed")) {
+		t.Logf("Got expected error: %v", err)
+	}
+}

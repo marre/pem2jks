@@ -165,6 +165,247 @@ func (ks *JKS) Marshal(password string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Unmarshal deserializes a JKS keystore from bytes
+func (ks *JKS) Unmarshal(data []byte, password string) error {
+	if len(data) < 20 {
+		return errors.New("JKS data too short")
+	}
+
+	// Split data and signature
+	// Last 20 bytes are the SHA1 integrity hash
+	if len(data) < 20 {
+		return errors.New("JKS file too short for integrity hash")
+	}
+	keystoreData := data[:len(data)-20]
+	storedHash := data[len(data)-20:]
+
+	// Verify integrity hash
+	computedHash := computeJKSIntegrityHash(keystoreData, password)
+	if !bytes.Equal(storedHash, computedHash) {
+		return errors.New("JKS integrity check failed - incorrect password or corrupted file")
+	}
+
+	r := bytes.NewReader(keystoreData)
+
+	// Read header
+	var magic, version, entryCount uint32
+	if err := binary.Read(r, binary.BigEndian, &magic); err != nil {
+		return fmt.Errorf("failed to read magic number: %w", err)
+	}
+	if magic != jksMagicNumber {
+		return fmt.Errorf("invalid JKS magic number: 0x%X", magic)
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
+		return fmt.Errorf("failed to read version: %w", err)
+	}
+	if version != jksVersion {
+		return fmt.Errorf("unsupported JKS version: %d", version)
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &entryCount); err != nil {
+		return fmt.Errorf("failed to read entry count: %w", err)
+	}
+
+	// Read entries
+	ks.Entries = make([]Entry, 0, entryCount)
+	for i := uint32(0); i < entryCount; i++ {
+		var tag uint32
+		if err := binary.Read(r, binary.BigEndian, &tag); err != nil {
+			return fmt.Errorf("failed to read entry tag: %w", err)
+		}
+
+		switch tag {
+		case jksTagPrivateKey:
+			entry, err := readPrivateKeyEntry(r, password)
+			if err != nil {
+				return fmt.Errorf("failed to read private key entry %d: %w", i, err)
+			}
+			ks.Entries = append(ks.Entries, entry)
+		case jksTagTrustedCert:
+			entry, err := readTrustedCertEntry(r)
+			if err != nil {
+				return fmt.Errorf("failed to read trusted cert entry %d: %w", i, err)
+			}
+			ks.Entries = append(ks.Entries, entry)
+		default:
+			return fmt.Errorf("unknown entry tag: %d", tag)
+		}
+	}
+
+	return nil
+}
+
+func readPrivateKeyEntry(r io.Reader, password string) (PrivateKeyEntry, error) {
+	var entry PrivateKeyEntry
+
+	// Read alias
+	alias, err := readUTF(r)
+	if err != nil {
+		return entry, fmt.Errorf("failed to read alias: %w", err)
+	}
+	entry.Alias = alias
+
+	// Read timestamp
+	var timestampMillis int64
+	if err := binary.Read(r, binary.BigEndian, &timestampMillis); err != nil {
+		return entry, fmt.Errorf("failed to read timestamp: %w", err)
+	}
+	entry.Timestamp = time.UnixMilli(timestampMillis)
+
+	// Read encrypted private key
+	encryptedKeyData, err := readBytes(r)
+	if err != nil {
+		return entry, fmt.Errorf("failed to read encrypted key: %w", err)
+	}
+
+	// Decrypt private key
+	privKey, err := decryptJKSPrivateKey(encryptedKeyData, password)
+	if err != nil {
+		return entry, fmt.Errorf("failed to decrypt private key: %w", err)
+	}
+	entry.PrivKey = privKey
+
+	// Read certificate chain count
+	var chainLen uint32
+	if err := binary.Read(r, binary.BigEndian, &chainLen); err != nil {
+		return entry, fmt.Errorf("failed to read chain length: %w", err)
+	}
+
+	// Read certificate chain
+	entry.CertChain = make([][]byte, 0, chainLen)
+	for j := uint32(0); j < chainLen; j++ {
+		// Read certificate type
+		certType, err := readUTF(r)
+		if err != nil {
+			return entry, fmt.Errorf("failed to read cert type: %w", err)
+		}
+		if certType != "X.509" {
+			return entry, fmt.Errorf("unsupported certificate type: %s", certType)
+		}
+
+		// Read certificate data
+		certData, err := readBytes(r)
+		if err != nil {
+			return entry, fmt.Errorf("failed to read cert data: %w", err)
+		}
+		entry.CertChain = append(entry.CertChain, certData)
+	}
+
+	return entry, nil
+}
+
+func readTrustedCertEntry(r io.Reader) (TrustedCertEntry, error) {
+	var entry TrustedCertEntry
+
+	// Read alias
+	alias, err := readUTF(r)
+	if err != nil {
+		return entry, fmt.Errorf("failed to read alias: %w", err)
+	}
+	entry.Alias = alias
+
+	// Read timestamp
+	var timestampMillis int64
+	if err := binary.Read(r, binary.BigEndian, &timestampMillis); err != nil {
+		return entry, fmt.Errorf("failed to read timestamp: %w", err)
+	}
+	entry.Timestamp = time.UnixMilli(timestampMillis)
+
+	// Read certificate type
+	certType, err := readUTF(r)
+	if err != nil {
+		return entry, fmt.Errorf("failed to read cert type: %w", err)
+	}
+	if certType != "X.509" {
+		return entry, fmt.Errorf("unsupported certificate type: %s", certType)
+	}
+
+	// Read certificate data
+	certData, err := readBytes(r)
+	if err != nil {
+		return entry, fmt.Errorf("failed to read cert data: %w", err)
+	}
+	entry.Cert = certData
+
+	return entry, nil
+}
+
+// readUTF reads a string in Java's modified UTF-8 format
+func readUTF(r io.Reader) (string, error) {
+	var length uint16
+	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
+		return "", err
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// readBytes reads a length-prefixed byte array
+func readBytes(r io.Reader) ([]byte, error) {
+	var length uint32
+	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
+		return nil, err
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// decryptJKSPrivateKey decrypts a PKCS#8 private key using JKS proprietary algorithm
+func decryptJKSPrivateKey(encapsulatedData []byte, password string) ([]byte, error) {
+	// Parse the PKCS#8 EncryptedPrivateKeyInfo structure
+	var epki encryptedPrivateKeyInfo
+	rest, err := asn1.Unmarshal(encapsulatedData, &epki)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse encrypted private key info: %w", err)
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("unexpected trailing data after encrypted private key info")
+	}
+
+	// Verify algorithm OID
+	if !epki.Algo.Algorithm.Equal(sunJKSAlgoOID) {
+		return nil, fmt.Errorf("unsupported private key encryption algorithm: %v", epki.Algo.Algorithm)
+	}
+
+	encryptedData := epki.EncryptedData
+
+	// Encrypted data format: IV (20 bytes) + encrypted key + check (20 bytes)
+	if len(encryptedData) < 40 {
+		return nil, errors.New("encrypted key data too short")
+	}
+
+	passwordBytes := stringToUTF16BE(password)
+	iv := encryptedData[:20]
+	encrypted := encryptedData[20 : len(encryptedData)-20]
+	storedCheck := encryptedData[len(encryptedData)-20:]
+
+	// Decrypt the key
+	keystream := jksKeystream(iv, passwordBytes)
+	plaintext := make([]byte, len(encrypted))
+	for i, b := range encrypted {
+		plaintext[i] = b ^ keystream[i]
+	}
+
+	// Verify integrity check: SHA1(password + plaintext)
+	h := sha1.New()
+	h.Write(passwordBytes)
+	h.Write(plaintext)
+	computedCheck := h.Sum(nil)
+
+	if !bytes.Equal(storedCheck, computedCheck) {
+		return nil, errors.New("private key integrity check failed - incorrect password")
+	}
+
+	return plaintext, nil
+}
+
 func (ks *JKS) writePrivateKeyEntry(w io.Writer, entry PrivateKeyEntry, password string) error {
 	// Tag
 	if err := binary.Write(w, binary.BigEndian, uint32(jksTagPrivateKey)); err != nil {

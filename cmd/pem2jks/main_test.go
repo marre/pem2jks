@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marre/pem2jks/pkg/keystore"
 	"software.sslmate.com/src/go-pkcs12"
 )
 
@@ -90,7 +91,7 @@ func TestCreateJKSKeystoreMultipleCerts(t *testing.T) {
 	}
 
 	// Create JKS keystore
-	jksData, err := createJKSKeystore(pairs, nil, "changeit")
+	jksData, err := createJKSKeystore(pairs, nil, "changeit", "")
 	if err != nil {
 		t.Fatalf("Failed to create JKS keystore: %v", err)
 	}
@@ -229,7 +230,7 @@ func TestMultipleCAFiles(t *testing.T) {
 	allCAPEM := append(ca1PEM, ca2PEM...)
 
 	// Create JKS truststore with multiple CAs
-	jksData, err := createJKSKeystore(nil, allCAPEM, "changeit")
+	jksData, err := createJKSKeystore(nil, allCAPEM, "changeit", "")
 	if err != nil {
 		t.Fatalf("Failed to create JKS with multiple CAs: %v", err)
 	}
@@ -239,4 +240,131 @@ func TestMultipleCAFiles(t *testing.T) {
 	}
 
 	t.Logf("Created JKS truststore with 2 CAs, size: %d bytes", len(jksData))
+}
+
+func TestJKSAppendToExisting(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create initial JKS with one private key
+	cert1PEM, key1PEM := generateTestCert(t, "app1.example.com")
+	
+	pairs1 := []certKeyPair{
+		{certPEM: cert1PEM, keyPEM: key1PEM, alias: "app1"},
+	}
+	
+	jksData1, err := createJKSKeystore(pairs1, nil, "changeit", "")
+	if err != nil {
+		t.Fatalf("Failed to create initial JKS: %v", err)
+	}
+
+	// Write to file
+	inputFile := filepath.Join(tempDir, "initial.jks")
+	if err := os.WriteFile(inputFile, jksData1, 0600); err != nil {
+		t.Fatalf("Failed to write initial JKS: %v", err)
+	}
+
+	// Add another private key to the existing JKS
+	cert2PEM, key2PEM := generateTestCert(t, "app2.example.com")
+	
+	pairs2 := []certKeyPair{
+		{certPEM: cert2PEM, keyPEM: key2PEM, alias: "app2"},
+	}
+
+	// Append to existing JKS
+	jksData2, err := createJKSKeystore(pairs2, nil, "changeit", inputFile)
+	if err != nil {
+		t.Fatalf("Failed to append to JKS: %v", err)
+	}
+
+	if len(jksData2) == 0 {
+		t.Error("Appended JKS data is empty")
+	}
+
+	// Verify we have 2 entries now by unmarshaling
+	ks := keystore.NewJKS()
+	if err := ks.Unmarshal(jksData2, "changeit"); err != nil {
+		t.Fatalf("Failed to unmarshal appended JKS: %v", err)
+	}
+
+	if len(ks.Entries) != 2 {
+		t.Errorf("Expected 2 entries in JKS, got %d", len(ks.Entries))
+	}
+
+	// Verify both are private key entries
+	privateKeyCount := 0
+	for _, entry := range ks.Entries {
+		if _, ok := entry.(keystore.PrivateKeyEntry); ok {
+			privateKeyCount++
+		}
+	}
+
+	if privateKeyCount != 2 {
+		t.Errorf("Expected 2 private key entries, got %d", privateKeyCount)
+	}
+
+	t.Logf("Successfully appended to JKS, now has %d entries", len(ks.Entries))
+}
+
+func TestJKSAppendTrustedCertsToKeystore(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create initial JKS with a private key
+	certPEM, keyPEM := generateTestCert(t, "app.example.com")
+	
+	pairs := []certKeyPair{
+		{certPEM: certPEM, keyPEM: keyPEM, alias: "app"},
+	}
+	
+	jksData1, err := createJKSKeystore(pairs, nil, "changeit", "")
+	if err != nil {
+		t.Fatalf("Failed to create initial JKS: %v", err)
+	}
+
+	// Write to file
+	inputFile := filepath.Join(tempDir, "keystore.jks")
+	if err := os.WriteFile(inputFile, jksData1, 0600); err != nil {
+		t.Fatalf("Failed to write initial JKS: %v", err)
+	}
+
+	// Add CA certificates to the existing JKS
+	ca1PEM, _ := generateTestCert(t, "CA1")
+	ca2PEM, _ := generateTestCert(t, "CA2")
+	allCAPEM := append(ca1PEM, ca2PEM...)
+
+	// Append CAs to existing JKS
+	jksData2, err := createJKSKeystore(nil, allCAPEM, "changeit", inputFile)
+	if err != nil {
+		t.Fatalf("Failed to append CAs to JKS: %v", err)
+	}
+
+	// Verify we have 3 entries now (1 private key + 2 trusted certs)
+	ks := keystore.NewJKS()
+	if err := ks.Unmarshal(jksData2, "changeit"); err != nil {
+		t.Fatalf("Failed to unmarshal appended JKS: %v", err)
+	}
+
+	if len(ks.Entries) != 3 {
+		t.Errorf("Expected 3 entries in JKS, got %d", len(ks.Entries))
+	}
+
+	// Count entry types
+	privateKeyCount := 0
+	trustedCertCount := 0
+	for _, entry := range ks.Entries {
+		switch entry.(type) {
+		case keystore.PrivateKeyEntry:
+			privateKeyCount++
+		case keystore.TrustedCertEntry:
+			trustedCertCount++
+		}
+	}
+
+	if privateKeyCount != 1 {
+		t.Errorf("Expected 1 private key entry, got %d", privateKeyCount)
+	}
+	if trustedCertCount != 2 {
+		t.Errorf("Expected 2 trusted cert entries, got %d", trustedCertCount)
+	}
+
+	t.Logf("Successfully appended CAs to JKS with private key, now has %d entries", len(ks.Entries))
 }

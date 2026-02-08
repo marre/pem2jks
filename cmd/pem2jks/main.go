@@ -106,7 +106,7 @@ func init() {
 	rootCmd.Flags().StringArrayVarP(&aliases, "alias", "a", []string{}, "alias for the private key entry (repeatable, default: server, server-1, ...)")
 	rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
 	rootCmd.Flags().BoolVar(&legacy, "legacy", false, "use legacy algorithms for PKCS#12 (for older Java)")
-	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (PKCS#12 only)")
+	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
 }
 
 func runConvert(cmd *cobra.Command, args []string) error {
@@ -117,11 +117,6 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		// valid
 	default:
 		return fmt.Errorf("invalid format %q (use jks, pkcs12, or p12)", format)
-	}
-
-	// Validate input file is only used with PKCS#12
-	if inputFile != "" && keystoreFormat == "jks" {
-		return fmt.Errorf("--input flag is only supported for PKCS#12 format, not JKS")
 	}
 
 	// Set default output filename based on format
@@ -207,7 +202,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	switch keystoreFormat {
 	case "jks":
-		keystoreData, err = createJKSKeystore(pairs, allCAPEM, keystorePassword)
+		keystoreData, err = createJKSKeystore(pairs, allCAPEM, keystorePassword, inputFile)
 	case "pkcs12", "p12":
 		keystoreData, err = createPKCS12Keystore(pairs, allCAPEM, keystorePassword, inputFile, legacy)
 	}
@@ -225,8 +220,23 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func createJKSKeystore(pairs []certKeyPair, caPEM []byte, password string) ([]byte, error) {
-	ks := keystore.NewJKS()
+func createJKSKeystore(pairs []certKeyPair, caPEM []byte, password string, inputFile string) ([]byte, error) {
+	var ks *keystore.JKS
+
+	// Load existing keystore if provided
+	if inputFile != "" {
+		existingData, err := os.ReadFile(inputFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read input file: %w", err)
+		}
+
+		ks = keystore.NewJKS()
+		if err := ks.Unmarshal(existingData, password); err != nil {
+			return nil, fmt.Errorf("failed to load existing JKS keystore: %w", err)
+		}
+	} else {
+		ks = keystore.NewJKS()
+	}
 
 	// Add each cert/key pair
 	for _, pair := range pairs {
