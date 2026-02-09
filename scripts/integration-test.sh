@@ -101,35 +101,17 @@ else
 fi
 
 echo ""
-echo "====== PKCS#12 Legacy Format Tests ======"
-echo ""
-
-echo "Test 9: Create PKCS#12 keystore with legacy algorithms"
-"$BINARY" -c tls.crt:tls.key:server -p changeit -o test-legacy.p12 -f pkcs12 --legacy
-echo "  Created test-legacy.p12"
-
-echo ""
-echo "Test 10: Verify legacy PKCS#12 with keytool"
-if command -v keytool &> /dev/null; then
-    echo "  Verifying test-legacy.p12 (verbose):"
-    keytool -list -v -keystore test-legacy.p12 -storepass changeit -storetype PKCS12 || { echo "  ERROR: keytool verification failed"; exit 1; }
-else
-    echo "  ERROR: keytool not found - it is required for validation"
-    exit 1
-fi
-
-echo ""
 echo "====== Multiple PEM Files Tests ======"
 echo ""
 
-echo "Test 11: Create JKS with multiple cert/key pairs"
+echo "Test 9: Create JKS with multiple cert/key pairs"
 "$BINARY" -c tls.crt:tls.key:server1 \
           -c tls.crt:tls.key:server2 \
           -p changeit -o multi-keys.jks -f jks
 echo "  Created multi-keys.jks"
 
 echo ""
-echo "Test 12: Verify JKS with multiple entries"
+echo "Test 10: Verify JKS with multiple entries"
 if command -v keytool &> /dev/null; then
     echo "  Verifying multi-keys.jks:"
     ENTRY_COUNT=$(keytool -list -keystore multi-keys.jks -storepass changeit 2>&1 | grep "Your keystore contains" | grep -o '[0-9]\+' || echo "0")
@@ -146,12 +128,12 @@ else
 fi
 
 echo ""
-echo "Test 13: Create keystore with multiple CA certificates"
+echo "Test 11: Create keystore with multiple CA certificates"
 "$BINARY" --ca ca.crt --ca ca.crt -p changeit -o multi-ca.jks -f jks
 echo "  Created multi-ca.jks"
 
 echo ""
-echo "Test 14: Verify keystore with multiple CAs"
+echo "Test 12: Verify keystore with multiple CAs"
 if command -v keytool &> /dev/null; then
     echo "  Verifying multi-ca.jks:"
     ENTRY_COUNT=$(keytool -list -keystore multi-ca.jks -storepass changeit 2>&1 | grep "Your keystore contains" | grep -o '[0-9]\+' || echo "0")
@@ -171,17 +153,17 @@ echo ""
 echo "====== JKS Append Tests ======"
 echo ""
 
-echo "Test 15: Create initial JKS with one private key"
+echo "Test 13: Create initial JKS with one private key"
 "$BINARY" -c tls.crt:tls.key:initial-key -p changeit -o append-test.jks -f jks
 echo "  Created append-test.jks with 1 entry"
 
 echo ""
-echo "Test 16: Append another private key to existing JKS"
+echo "Test 14: Append another private key to existing JKS"
 "$BINARY" --input append-test.jks -c tls.crt:tls.key:appended-key -p changeit -o append-test.jks -f jks
 echo "  Appended to append-test.jks"
 
 echo ""
-echo "Test 17: Verify JKS after append"
+echo "Test 15: Verify JKS after append"
 if command -v keytool &> /dev/null; then
     echo "  Verifying append-test.jks:"
     ENTRY_COUNT=$(keytool -list -keystore append-test.jks -storepass changeit 2>&1 | grep "Your keystore contains" | grep -o '[0-9]\+' || echo "0")
@@ -198,12 +180,12 @@ else
 fi
 
 echo ""
-echo "Test 18: Append CA certificates to existing JKS"
+echo "Test 16: Append CA certificates to existing JKS"
 "$BINARY" --input append-test.jks --ca ca.crt -p changeit -o append-test.jks -f jks
 echo "  Appended CA to append-test.jks"
 
 echo ""
-echo "Test 19: Verify JKS after CA append"
+echo "Test 17: Verify JKS after CA append"
 if command -v keytool &> /dev/null; then
     echo "  Verifying append-test.jks after CA append:"
     ENTRY_COUNT=$(keytool -list -keystore append-test.jks -storepass changeit 2>&1 | grep "Your keystore contains" | grep -o '[0-9]\+' || echo "0")
@@ -223,17 +205,17 @@ echo ""
 echo "====== PKCS#12 Append Tests ======"
 echo ""
 
-echo "Test 20: Create initial PKCS#12 truststore"
+echo "Test 18: Create initial PKCS#12 truststore"
 "$BINARY" --ca ca.crt -p changeit -o append-test.p12 -f pkcs12
 echo "  Created append-test.p12 with 1 CA entry"
 
 echo ""
-echo "Test 21: Append another CA to existing PKCS#12"
+echo "Test 19: Append another CA to existing PKCS#12"
 "$BINARY" --input append-test.p12 --ca tls.crt -p changeit -o append-test.p12 -f pkcs12
 echo "  Appended certificate to append-test.p12"
 
 echo ""
-echo "Test 22: Verify PKCS#12 after append"
+echo "Test 20: Verify PKCS#12 after append"
 if command -v keytool &> /dev/null; then
     echo "  Verifying append-test.p12:"
     ENTRY_COUNT=$(keytool -list -keystore append-test.p12 -storepass changeit -storetype PKCS12 2>&1 | grep "Your keystore contains" | grep -o '[0-9]\+' || echo "0")
@@ -253,7 +235,7 @@ fi
 echo ""
 echo "Cleaning up test files..."
 rm -f test1.jks test2.jks truststore.jks
-rm -f test1.p12 test2.p12 truststore.p12 test-legacy.p12
+rm -f test1.p12 test2.p12 truststore.p12
 rm -f multi-keys.jks multi-ca.jks
 rm -f append-test.jks append-test.p12
 

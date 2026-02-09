@@ -830,20 +830,6 @@ func (ks *PKCS12KeyStore) Marshal(password string) ([]byte, error) {
 	return pkcs12.Modern.EncodeTrustStore(allCerts, password)
 }
 
-// MarshalLegacy serializes the keystore to PKCS#12 format using legacy algorithms.
-func (ks *PKCS12KeyStore) MarshalLegacy(password string) ([]byte, error) {
-	if ks.PrivateKey != nil {
-		return pkcs12.Legacy.Encode(ks.PrivateKey, ks.Certificate, ks.CACerts, password)
-	}
-
-	if len(ks.TrustedCerts) == 0 && len(ks.CACerts) == 0 {
-		return nil, errors.New("no certificates to encode")
-	}
-
-	allCerts := append(ks.TrustedCerts, ks.CACerts...)
-	return pkcs12.Legacy.EncodeTrustStore(allCerts, password)
-}
-
 // CreatePKCS12FromPEM creates a PKCS#12 keystore from PEM data.
 func CreatePKCS12FromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
 	ks := NewPKCS12()
@@ -902,64 +888,4 @@ func CreatePKCS12FromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) 
 	}
 
 	return ks.Marshal(password)
-}
-
-// CreatePKCS12FromPEMLegacy creates a PKCS#12 keystore using legacy algorithms.
-func CreatePKCS12FromPEMLegacy(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
-	ks := NewPKCS12()
-
-	var certChain []*x509.Certificate
-	if len(certPEM) > 0 {
-		certs, err := ParsePEMCertificates(certPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse certificate: %w", err)
-		}
-		for _, certDER := range certs {
-			cert, err := x509.ParseCertificate(certDER)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse certificate: %w", err)
-			}
-			certChain = append(certChain, cert)
-		}
-	}
-
-	if len(keyPEM) > 0 {
-		if len(certChain) == 0 {
-			return nil, errors.New("private key provided but no certificate")
-		}
-
-		key, err := parsePEMPrivateKeyRaw(keyPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse private key: %w", err)
-		}
-
-		ks.SetPrivateKey(key, certChain[0])
-		for _, caCert := range certChain[1:] {
-			ks.AddCACert(caCert)
-		}
-	} else if len(certChain) > 0 {
-		for _, cert := range certChain {
-			ks.AddTrustedCert(cert)
-		}
-	}
-
-	if len(caPEM) > 0 {
-		caCerts, err := ParsePEMCertificates(caPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CA certificates: %w", err)
-		}
-		for _, certDER := range caCerts {
-			cert, err := x509.ParseCertificate(certDER)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
-			}
-			if ks.PrivateKey != nil {
-				ks.AddCACert(cert)
-			} else {
-				ks.AddTrustedCert(cert)
-			}
-		}
-	}
-
-	return ks.MarshalLegacy(password)
 }

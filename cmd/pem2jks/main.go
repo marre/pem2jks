@@ -36,7 +36,6 @@ var (
 	passwordFile  string
 	inputPassword string
 	format        string
-	legacy        bool
 	inputFile     string
 )
 
@@ -58,11 +57,8 @@ applications require JKS or PKCS#12 keystores.`,
 	Example: `  # Create JKS keystore with private key and certificate
   pem2jks -c tls.crt:tls.key -p changeit -o keystore.jks
 
-  # Create PKCS#12 keystore (modern format)
+  # Create PKCS#12 keystore
   pem2jks -c tls.crt:tls.key -p changeit -f pkcs12
-
-  # Create PKCS#12 with legacy algorithms for older Java
-  pem2jks -c tls.crt:tls.key -p changeit -f pkcs12 --legacy
 
   # Create keystore with multiple cert/key pairs and custom aliases
   pem2jks -c app1.crt:app1.key:app1 -c app2.crt:app2.key:app2 -p changeit
@@ -107,7 +103,6 @@ func init() {
 	rootCmd.Flags().StringVar(&passwordFile, "password-file", "", "file containing keystore password")
 	rootCmd.Flags().StringVar(&inputPassword, "input-password", "", "password for input keystore (defaults to --password if not specified)")
 	rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
-	rootCmd.Flags().BoolVar(&legacy, "legacy", false, "use legacy algorithms for PKCS#12 (for older Java)")
 	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
 }
 
@@ -170,7 +165,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	case "jks":
 		keystoreData, err = createJKSKeystore(pairs, caPairs, keystorePassword, inputFile, inputKeystorePassword)
 	case "pkcs12", "p12":
-		keystoreData, err = createPKCS12Keystore(pairs, caPairs, keystorePassword, inputFile, inputKeystorePassword, legacy)
+		keystoreData, err = createPKCS12Keystore(pairs, caPairs, keystorePassword, inputFile, inputKeystorePassword)
 	}
 
 	if err != nil {
@@ -266,7 +261,7 @@ func createJKSKeystore(pairs []certKeyPair, caPairs []certKeyPair, password stri
 	return ks.Marshal(password)
 }
 
-func createPKCS12Keystore(pairs []certKeyPair, caPairs []certKeyPair, password string, inputFile string, inputPassword string, useLegacy bool) ([]byte, error) {
+func createPKCS12Keystore(pairs []certKeyPair, caPairs []certKeyPair, password string, inputFile string, inputPassword string) ([]byte, error) {
 	ks := keystore.NewPKCS12()
 
 	// Load existing keystore if provided
@@ -366,9 +361,6 @@ func createPKCS12Keystore(pairs []certKeyPair, caPairs []certKeyPair, password s
 		}
 	}
 
-	if useLegacy {
-		return ks.MarshalLegacy(password)
-	}
 	return ks.Marshal(password)
 }
 
