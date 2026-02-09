@@ -108,10 +108,9 @@ If any of these were broken, keytool would fail with an error.
 ## Test Results
 
 All integration tests pass with the new keytool-only validation:
-- **10 tests** covering JKS and PKCS#12 formats
+- **20 tests** covering JKS and PKCS#12 formats
 - Tests verify both basic and verbose output
 - Certificate chains are properly validated
-- Legacy PKCS#12 format works correctly
 
 ## Recommendation
 

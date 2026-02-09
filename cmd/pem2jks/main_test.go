@@ -102,7 +102,7 @@ func TestCreatePKCS12KeystoreWithCA(t *testing.T) {
 	}
 
 	// Create PKCS#12 keystore with CA
-	p12Data, err := createPKCS12Keystore(pairs, caPairs, "changeit", "", "changeit", false)
+	p12Data, err := createPKCS12Keystore(pairs, caPairs, "changeit", "", "changeit")
 	if err != nil {
 		t.Fatalf("Failed to create PKCS#12 keystore: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPKCS12AppendToTruststore(t *testing.T) {
 		{certPEM: ca1PEM, keyPEM: nil, alias: "ca1"},
 	}
 
-	p12Data1, err := createPKCS12Keystore(pairs1, nil, "changeit", "", "changeit", false)
+	p12Data1, err := createPKCS12Keystore(pairs1, nil, "changeit", "", "changeit")
 	if err != nil {
 		t.Fatalf("Failed to create initial PKCS#12: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestPKCS12AppendToTruststore(t *testing.T) {
 	}
 
 	// Append to existing truststore
-	p12Data2, err := createPKCS12Keystore(pairs2, nil, "changeit", inputFile, "changeit", false)
+	p12Data2, err := createPKCS12Keystore(pairs2, nil, "changeit", inputFile, "changeit")
 	if err != nil {
 		t.Fatalf("Failed to append to PKCS#12: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestPKCS12OnlyOnePrivateKey(t *testing.T) {
 		{certPEM: cert2PEM, keyPEM: key2PEM, alias: "app2"},
 	}
 
-	_, err := createPKCS12Keystore(pairs, nil, "changeit", "", "changeit", false)
+	_, err := createPKCS12Keystore(pairs, nil, "changeit", "", "changeit")
 	if err == nil {
 		t.Error("Expected error when creating PKCS#12 with multiple private keys, got nil")
 	}
