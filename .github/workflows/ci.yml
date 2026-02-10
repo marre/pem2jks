@@ -137,3 +137,5 @@ jobs:
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
+          sbom: true
+          provenance: true
