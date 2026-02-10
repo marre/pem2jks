@@ -74,37 +74,36 @@ jobs:
             -o ${BINARY_NAME} \
             ./cmd/pem2jks
 
-      - name: Create archive
+      - name: Set binary name
         run: |
           BINARY_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}"
-          ARCHIVE_NAME="${BINARY_NAME}.tar.gz"
-          tar -czvf ${ARCHIVE_NAME} ${BINARY_NAME} LICENSE.txt README.md
-          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
           echo "BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
 
       - name: Generate checksums
         run: |
           BINARY_NAME="${{ env.BINARY_NAME }}"
-          ARCHIVE_NAME="${{ env.ARCHIVE_NAME }}"
           echo "Generating SHA256 checksums..."
           sha256sum ${BINARY_NAME} > ${BINARY_NAME}.sha256
-          sha256sum ${ARCHIVE_NAME} > ${ARCHIVE_NAME}.sha256
           echo "✓ Checksums generated:"
           cat ${BINARY_NAME}.sha256
-          cat ${ARCHIVE_NAME}.sha256
 
-      - name: Sign binary and archive with Cosign
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate SBOM
         run: |
           BINARY_NAME="${{ env.BINARY_NAME }}"
-          ARCHIVE_NAME="${{ env.ARCHIVE_NAME }}"
+          echo "Generating SBOM for ${BINARY_NAME}..."
+          syft ${BINARY_NAME} -o spdx-json=${BINARY_NAME}.sbom.spdx.json
+          echo "✓ SBOM generated"
+
+      - name: Sign binary with Cosign
+        run: |
+          BINARY_NAME="${{ env.BINARY_NAME }}"
           
           echo "Signing binary ${BINARY_NAME} with keyless Cosign..."
           cosign sign-blob --yes ${BINARY_NAME} --bundle ${BINARY_NAME}.sigstore.json
           echo "✓ Binary signed successfully"
-          
-          echo "Signing archive ${ARCHIVE_NAME} with keyless Cosign..."
-          cosign sign-blob --yes ${ARCHIVE_NAME} --bundle ${ARCHIVE_NAME}.sigstore.json
-          echo "✓ Archive signed successfully"
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
@@ -113,9 +112,7 @@ jobs:
             ${{ env.BINARY_NAME }}
             ${{ env.BINARY_NAME }}.sha256
             ${{ env.BINARY_NAME }}.sigstore.json
-            ${{ env.ARCHIVE_NAME }}
-            ${{ env.ARCHIVE_NAME }}.sha256
-            ${{ env.ARCHIVE_NAME }}.sigstore.json
+            ${{ env.BINARY_NAME }}.sbom.spdx.json
 
       - name: Upload artifacts for Docker build
         uses: actions/upload-artifact@v4
