@@ -1,3 +1,6 @@
+# Copy cosign from official image
+FROM ghcr.io/sigstore/cosign/cosign:v3.0.4@sha256:0b015a3557a64a751712da8a6395534160018eaaa2d969882a85a336de9adb70 AS cosign-bin
+
 # Verification stage - verifies the signed binary
 FROM alpine:3.21 AS verifier
 
@@ -5,8 +8,8 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
-# Install cosign for signature verification
-RUN apk add --no-cache cosign
+# Copy cosign binary from official Sigstore image
+COPY --from=cosign-bin /ko-app/cosign /usr/local/bin/cosign
 
 WORKDIR /verify
 
