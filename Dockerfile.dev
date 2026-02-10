@@ -26,4 +26,5 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 # Final stage
 FROM scratch
 COPY --from=builder /build/pem2jks /pem2jks
+COPY LICENSE.txt /LICENSE.txt
 ENTRYPOINT ["/pem2jks"]

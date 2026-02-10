@@ -37,4 +37,5 @@ FROM scratch
 ARG TARGETOS
 ARG TARGETARCH
 COPY --from=verifier /verify/pem2jks-${TARGETOS}-${TARGETARCH} /pem2jks
+COPY LICENSE.txt /LICENSE.txt
 ENTRYPOINT ["/pem2jks"]
