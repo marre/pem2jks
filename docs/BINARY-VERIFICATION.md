@@ -1,12 +1,12 @@
 # Binary Verification
 
-All binaries published as part of releases are signed using [Cosign](https://docs.sigstore.dev/cosign/overview/) with keyless signing (OIDC-based) and include SHA256 checksums. This ensures the authenticity and integrity of the binaries.
+All binaries and archives published as part of releases are signed using [Cosign](https://docs.sigstore.dev/cosign/overview/) with keyless signing (OIDC-based) and include SHA256 checksums. This ensures the authenticity and integrity of the release artifacts.
 
 ## Verifying Checksums
 
-Each release includes SHA256 checksum files for all binaries and archives. You can verify the integrity of downloaded files:
+Each release includes SHA256 checksum files for both binaries and archives. You can verify the integrity of downloaded files:
 
-### Download and Verify
+### Download and Verify Archive
 
 ```bash
 # Download the binary archive and checksum
@@ -18,6 +18,26 @@ sha256sum -c pem2jks-linux-amd64.tar.gz.sha256
 
 # Expected output:
 # pem2jks-linux-amd64.tar.gz: OK
+
+# Extract the archive
+tar -xzf pem2jks-linux-amd64.tar.gz
+```
+
+### Download and Verify Binary Directly
+
+```bash
+# Download the binary and checksum
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.sha256
+
+# Verify the checksum
+sha256sum -c pem2jks-linux-amd64.sha256
+
+# Expected output:
+# pem2jks-linux-amd64: OK
+
+# Make executable
+chmod +x pem2jks-linux-amd64
 ```
 
 ### macOS Verification
@@ -57,7 +77,28 @@ wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd
 cosign verify-blob pem2jks-linux-amd64 \
   --signature pem2jks-linux-amd64.sig \
   --certificate pem2jks-linux-amd64.pem \
-  --certificate-identity-regexp="https://github.com/marre/pem2jks/.*" \
+  --certificate-identity-regexp="https://github.com/marre/pem2jks/.github/workflows/release.yml@refs/tags/.*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+
+# Successful verification output will include:
+# Verified OK
+```
+
+### Verify an Archive Signature
+
+Archives are also signed and can be verified before extraction:
+
+```bash
+# Download the archive, signature, and certificate
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.sig
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.pem
+
+# Verify the signature
+cosign verify-blob pem2jks-linux-amd64.tar.gz \
+  --signature pem2jks-linux-amd64.tar.gz.sig \
+  --certificate pem2jks-linux-amd64.tar.gz.pem \
+  --certificate-identity-regexp="https://github.com/marre/pem2jks/.github/workflows/release.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 
 # Successful verification output will include:
@@ -77,6 +118,7 @@ Here's a complete example for downloading and verifying a release:
 
 ```bash
 #!/bin/bash
+set -e
 
 # Configuration
 VERSION="1.0.0"
@@ -88,23 +130,41 @@ ARCHIVE="pem2jks-${PLATFORM}.tar.gz"
 echo "Downloading release v${VERSION} for ${PLATFORM}..."
 curl -LO "${BASE_URL}/${ARCHIVE}"
 curl -LO "${BASE_URL}/${ARCHIVE}.sha256"
+curl -LO "${BASE_URL}/${ARCHIVE}.sig"
+curl -LO "${BASE_URL}/${ARCHIVE}.pem"
 curl -LO "${BASE_URL}/pem2jks-${PLATFORM}.sig"
 curl -LO "${BASE_URL}/pem2jks-${PLATFORM}.pem"
 
-# Verify checksum
+# Verify checksum (works on both Linux and macOS)
 echo "Verifying checksum..."
-sha256sum -c ${ARCHIVE}.sha256 || exit 1
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum -c "${ARCHIVE}.sha256" || exit 1
+elif command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 -c "${ARCHIVE}.sha256" || exit 1
+else
+  echo "Error: neither 'sha256sum' nor 'shasum' is available." >&2
+  echo "Please install coreutils (Linux) or use the built-in shasum (macOS)." >&2
+  exit 1
+fi
+
+# Verify archive signature
+echo "Verifying archive signature..."
+cosign verify-blob ${ARCHIVE} \
+  --signature ${ARCHIVE}.sig \
+  --certificate ${ARCHIVE}.pem \
+  --certificate-identity-regexp="https://github.com/marre/pem2jks/.github/workflows/release.yml@refs/tags/.*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
 
 # Extract archive
 echo "Extracting archive..."
 tar -xzf ${ARCHIVE}
 
-# Verify signature
+# Verify binary signature
 echo "Verifying binary signature..."
 cosign verify-blob pem2jks-${PLATFORM} \
   --signature pem2jks-${PLATFORM}.sig \
   --certificate pem2jks-${PLATFORM}.pem \
-  --certificate-identity-regexp="https://github.com/marre/pem2jks/.*" \
+  --certificate-identity-regexp="https://github.com/marre/pem2jks/.github/workflows/release.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
 
 echo "✓ Verification successful! Binary is authentic and unmodified."
@@ -136,4 +196,4 @@ If signature verification fails:
 
 ## Reporting Security Issues
 
-If you discover a security issue or suspect a compromised binary, please report it according to our [security policy](../SECURITY.md) (if available) or by opening a confidential security advisory on GitHub.
+If you discover a security issue or suspect a compromised binary, please report it by opening a confidential security advisory via the repository's **Security** tab on GitHub: https://github.com/marre/pem2jks/security/advisories/new

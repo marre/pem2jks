@@ -59,8 +59,8 @@ clean:
 	rm -rf bin/
 	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
 
-# Build Docker image (single platform, for local use)
-# Uses Dockerfile which expects signed binaries (for production releases)
+# Build Docker image from signed binaries (requires pre-signed binaries in context)
+# This target is used in the release workflow after binaries are signed
 # For local development without signed binaries, use docker-dev target
 docker:
 	docker build -t $(BINARY_NAME):$(VERSION) .
