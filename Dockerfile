@@ -10,8 +10,10 @@ ARG TARGETARCH
 RUN apk add --no-cache curl && \
     COSIGN_VERSION="v3.0.3" && \
     ARCH=$(uname -m) && \
-    if [ "${ARCH}" = "x86_64" ]; then ARCH="amd64"; elif [ "${ARCH}" = "aarch64" ]; then ARCH="arm64"; fi && \
-    curl -sL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${ARCH}" -o /usr/local/bin/cosign && \
+    if [ "${ARCH}" = "x86_64" ]; then ARCH="amd64"; \
+    elif [ "${ARCH}" = "aarch64" ]; then ARCH="arm64"; \
+    else echo "Unsupported architecture: ${ARCH}" && exit 1; fi && \
+    curl -fSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${ARCH}" -o /usr/local/bin/cosign && \
     chmod +x /usr/local/bin/cosign && \
     apk del curl
 
