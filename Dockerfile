@@ -1,3 +1,6 @@
+# Copy cosign from official image
+FROM ghcr.io/sigstore/cosign/cosign:v3.0.4@sha256:0b015a3557a64a751712da8a6395534160018eaaa2d969882a85a336de9adb70 AS cosign-bin
+
 # Verification stage - verifies the signed binary
 FROM alpine:3.21 AS verifier
 
@@ -5,17 +8,8 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
-# Install cosign for signature verification
-# We need cosign v3.0.3+ to support the newer Sigstore bundle format
-RUN apk add --no-cache curl && \
-    COSIGN_VERSION="v3.0.3" && \
-    ARCH=$(uname -m) && \
-    if [ "${ARCH}" = "x86_64" ]; then ARCH="amd64"; \
-    elif [ "${ARCH}" = "aarch64" ]; then ARCH="arm64"; \
-    else echo "Unsupported architecture: ${ARCH}" && exit 1; fi && \
-    curl -fSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${ARCH}" -o /usr/local/bin/cosign && \
-    chmod +x /usr/local/bin/cosign && \
-    apk del curl
+# Copy cosign binary from official Sigstore image
+COPY --from=cosign-bin /ko-app/cosign /usr/local/bin/cosign
 
 WORKDIR /verify
 
