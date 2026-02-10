@@ -99,11 +99,11 @@ jobs:
           ARCHIVE_NAME="${{ env.ARCHIVE_NAME }}"
           
           echo "Signing binary ${BINARY_NAME} with keyless Cosign..."
-          cosign sign-blob --yes ${BINARY_NAME} --bundle ${BINARY_NAME}.bundle
+          cosign sign-blob --yes ${BINARY_NAME} --bundle ${BINARY_NAME}.sigstore.json
           echo "✓ Binary signed successfully"
           
           echo "Signing archive ${ARCHIVE_NAME} with keyless Cosign..."
-          cosign sign-blob --yes ${ARCHIVE_NAME} --bundle ${ARCHIVE_NAME}.bundle
+          cosign sign-blob --yes ${ARCHIVE_NAME} --bundle ${ARCHIVE_NAME}.sigstore.json
           echo "✓ Archive signed successfully"
 
       - name: Upload Release Assets
@@ -112,10 +112,10 @@ jobs:
           files: |
             ${{ env.BINARY_NAME }}
             ${{ env.BINARY_NAME }}.sha256
-            ${{ env.BINARY_NAME }}.bundle
+            ${{ env.BINARY_NAME }}.sigstore.json
             ${{ env.ARCHIVE_NAME }}
             ${{ env.ARCHIVE_NAME }}.sha256
-            ${{ env.ARCHIVE_NAME }}.bundle
+            ${{ env.ARCHIVE_NAME }}.sigstore.json
 
       - name: Upload artifacts for Docker build
         uses: actions/upload-artifact@v4
@@ -124,7 +124,7 @@ jobs:
           path: |
             ${{ env.BINARY_NAME }}
             ${{ env.BINARY_NAME }}.sha256
-            ${{ env.BINARY_NAME }}.bundle
+            ${{ env.BINARY_NAME }}.sigstore.json
           retention-days: 1
 
   build-docker:
