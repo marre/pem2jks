@@ -94,7 +94,7 @@ jobs:
         run: |
           BINARY_NAME="${{ env.BINARY_NAME }}"
           echo "Generating SBOM for ${BINARY_NAME}..."
-          syft dir:. -o spdx-json=${BINARY_NAME}.sbom.spdx.json --source-name=${BINARY_NAME}
+          syft . -o spdx-json=${BINARY_NAME}.sbom.spdx.json --source-name=${BINARY_NAME}
           echo "✓ SBOM generated"
 
       - name: Sign binary with Cosign
