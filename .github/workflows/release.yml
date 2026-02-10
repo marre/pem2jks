@@ -52,6 +52,9 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
@@ -71,17 +74,42 @@ jobs:
             -o ${BINARY_NAME} \
             ./cmd/pem2jks
 
+      - name: Sign binary with Cosign
+        run: |
+          BINARY_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}"
+          echo "Signing binary ${BINARY_NAME} with keyless Cosign..."
+          cosign sign-blob --yes ${BINARY_NAME} --output-signature ${BINARY_NAME}.sig --output-certificate ${BINARY_NAME}.pem
+          echo "✓ Binary signed successfully"
+          echo "Signature: ${BINARY_NAME}.sig"
+          echo "Certificate: ${BINARY_NAME}.pem"
+
       - name: Create archive
         run: |
           BINARY_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}"
           ARCHIVE_NAME="${BINARY_NAME}.tar.gz"
           tar -czvf ${ARCHIVE_NAME} ${BINARY_NAME} LICENSE.txt README.md
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+          echo "BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
 
-      - name: Upload Release Asset
+      - name: Generate checksums
+        run: |
+          BINARY_NAME="${{ env.BINARY_NAME }}"
+          ARCHIVE_NAME="${{ env.ARCHIVE_NAME }}"
+          echo "Generating SHA256 checksums..."
+          sha256sum ${BINARY_NAME} > ${BINARY_NAME}.sha256
+          sha256sum ${ARCHIVE_NAME} > ${ARCHIVE_NAME}.sha256
+          echo "✓ Checksums generated:"
+          cat ${BINARY_NAME}.sha256
+          cat ${ARCHIVE_NAME}.sha256
+
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ env.ARCHIVE_NAME }}
+          files: |
+            ${{ env.ARCHIVE_NAME }}
+            ${{ env.ARCHIVE_NAME }}.sha256
+            ${{ env.BINARY_NAME }}.sig
+            ${{ env.BINARY_NAME }}.pem
 
   build-docker:
     name: Build and Push Docker
