@@ -93,8 +93,14 @@ jobs:
       - name: Generate SBOM
         run: |
           BINARY_NAME="${{ env.BINARY_NAME }}"
+          VERSION=${{ needs.release.outputs.version }}
           echo "Generating SBOM for ${BINARY_NAME}..."
-          syft . -o spdx-json=${BINARY_NAME}.sbom.spdx.json --source-name=${BINARY_NAME}
+          syft . \
+            --override-default-catalogers go-module-file-cataloger \
+            --enrich golang \
+            -o spdx-json=${BINARY_NAME}.sbom.spdx.json \
+            --source-name=${BINARY_NAME} \
+            --source-version=${VERSION}
           echo "✓ SBOM generated"
 
       - name: Sign binary with Cosign
