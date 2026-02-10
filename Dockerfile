@@ -13,13 +13,13 @@ WORKDIR /verify
 # Copy the signed binary and verification files from build context
 # These are provided by the workflow after build-binaries job completes
 COPY pem2jks-${TARGETOS}-${TARGETARCH} ./pem2jks-${TARGETOS}-${TARGETARCH}
-COPY pem2jks-${TARGETOS}-${TARGETARCH}.sha256 ./pem2jks.sha256
+COPY pem2jks-${TARGETOS}-${TARGETARCH}.sha256 ./pem2jks-${TARGETOS}-${TARGETARCH}.sha256
 COPY pem2jks-${TARGETOS}-${TARGETARCH}.sig ./pem2jks.sig
 COPY pem2jks-${TARGETOS}-${TARGETARCH}.pem ./pem2jks.pem
 
 # Verify SHA256 checksum
 RUN echo "Verifying checksum..." && \
-    sha256sum -c pem2jks.sha256 && \
+    sha256sum -c pem2jks-${TARGETOS}-${TARGETARCH}.sha256 && \
     echo "✓ Checksum verified"
 
 # Verify Cosign signature
@@ -27,11 +27,13 @@ RUN echo "Verifying signature..." && \
     cosign verify-blob pem2jks-${TARGETOS}-${TARGETARCH} \
       --signature pem2jks.sig \
       --certificate pem2jks.pem \
-      --certificate-identity-regexp="https://github.com/marre/pem2jks/.github/workflows/release.yml@refs/tags/.*" \
+      --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
       --certificate-oidc-issuer="https://token.actions.githubusercontent.com" && \
     echo "✓ Signature verified"
 
 # Final stage - use verified binary
 FROM scratch
+ARG TARGETOS
+ARG TARGETARCH
 COPY --from=verifier /verify/pem2jks-${TARGETOS}-${TARGETARCH} /pem2jks
 ENTRYPOINT ["/pem2jks"]

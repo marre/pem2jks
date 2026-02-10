@@ -380,7 +380,7 @@ The repository provides two Dockerfiles for different use cases:
 
 #### `Dockerfile` (Production)
 Used for official releases. This Dockerfile:
-- Downloads pre-built, signed binaries from GitHub releases
+- Uses pre-built, signed binaries from the build context (provided by the release workflow)
 - Verifies SHA256 checksums
 - Verifies Cosign signatures
 - Ensures maximum security and reproducibility
