@@ -68,15 +68,13 @@ Install Cosign:
 ### Verify a Binary Signature
 
 ```bash
-# Download the binary, signature, and certificate
+# Download the binary and signature bundle
 wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.sig
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.pem
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.bundle
 
 # Verify the signature
 cosign verify-blob pem2jks-linux-amd64 \
-  --signature pem2jks-linux-amd64.sig \
-  --certificate pem2jks-linux-amd64.pem \
+  --bundle pem2jks-linux-amd64.bundle \
   --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 
@@ -89,15 +87,13 @@ cosign verify-blob pem2jks-linux-amd64 \
 Archives are also signed and can be verified before extraction:
 
 ```bash
-# Download the archive, signature, and certificate
+# Download the archive and signature bundle
 wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.sig
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.pem
+wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.bundle
 
 # Verify the signature
 cosign verify-blob pem2jks-linux-amd64.tar.gz \
-  --signature pem2jks-linux-amd64.tar.gz.sig \
-  --certificate pem2jks-linux-amd64.tar.gz.pem \
+  --bundle pem2jks-linux-amd64.tar.gz.bundle \
   --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 
@@ -130,8 +126,7 @@ ARCHIVE="pem2jks-${PLATFORM}.tar.gz"
 echo "Downloading release v${VERSION} for ${PLATFORM}..."
 curl -LO "${BASE_URL}/${ARCHIVE}"
 curl -LO "${BASE_URL}/${ARCHIVE}.sha256"
-curl -LO "${BASE_URL}/${ARCHIVE}.sig"
-curl -LO "${BASE_URL}/${ARCHIVE}.pem"
+curl -LO "${BASE_URL}/${ARCHIVE}.bundle"
 
 # Verify checksum (works on both Linux and macOS)
 echo "Verifying archive checksum..."
@@ -148,8 +143,7 @@ fi
 # Verify archive signature
 echo "Verifying archive signature..."
 cosign verify-blob ${ARCHIVE} \
-  --signature ${ARCHIVE}.sig \
-  --certificate ${ARCHIVE}.pem \
+  --bundle ${ARCHIVE}.bundle \
   --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
 
@@ -179,8 +173,7 @@ BINARY="pem2jks-${PLATFORM}"
 echo "Downloading binary..."
 curl -LO "${BASE_URL}/${BINARY}"
 curl -LO "${BASE_URL}/${BINARY}.sha256"
-curl -LO "${BASE_URL}/${BINARY}.sig"
-curl -LO "${BASE_URL}/${BINARY}.pem"
+curl -LO "${BASE_URL}/${BINARY}.bundle"
 
 # Verify checksum
 echo "Verifying binary checksum..."
@@ -196,8 +189,7 @@ fi
 # Verify binary signature
 echo "Verifying binary signature..."
 cosign verify-blob ${BINARY} \
-  --signature ${BINARY}.sig \
-  --certificate ${BINARY}.pem \
+  --bundle ${BINARY}.bundle \
   --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
 
@@ -226,7 +218,7 @@ If checksum verification fails, the file may have been corrupted during download
 ### Signature Verification Fails
 
 If signature verification fails:
-- Ensure you have the correct `.sig` and `.pem` files for your binary
+- Ensure you have the correct `.bundle` file for your binary
 - Check that you're using the correct certificate identity and issuer parameters
 - Verify you have the latest version of Cosign installed
 - If the issue persists, report it as a security issue
