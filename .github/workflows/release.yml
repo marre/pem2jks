@@ -155,7 +155,7 @@ jobs:
           ls -lh binaries/
           
           # Move files to root for Docker context
-          mv binaries/* .
+          cp -r binaries/. .
           
           # Make binary executable
           chmod +x ${{ steps.platform.outputs.binary }}
