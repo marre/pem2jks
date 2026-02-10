@@ -1,29 +1,37 @@
-# Build stage
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+# Verification stage - verifies the signed binary
+FROM alpine:3.21 AS verifier
 
 ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
-ARG VERSION=dev
-ARG COMMIT=unknown
-ARG DATE=unknown
 
-WORKDIR /build
+# Install cosign for signature verification
+RUN apk add --no-cache cosign
 
-# Copy go mod files first for caching
-COPY go.mod go.sum ./
-RUN go mod download
+WORKDIR /verify
 
-# Copy source code
-COPY cmd/ ./cmd/
-COPY pkg/ ./pkg/
+# Copy the signed binary and verification files from build context
+# These are provided by the workflow after build-binaries job completes
+COPY pem2jks-${TARGETOS}-${TARGETARCH} ./pem2jks
+COPY pem2jks-${TARGETOS}-${TARGETARCH}.sha256 ./pem2jks.sha256
+COPY pem2jks-${TARGETOS}-${TARGETARCH}.sig ./pem2jks.sig
+COPY pem2jks-${TARGETOS}-${TARGETARCH}.pem ./pem2jks.pem
 
-# Build with version information for target architecture
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-    -ldflags="-s -w -X main.Version=${VERSION} -X main.GitCommit=${COMMIT} -X main.BuildDate=${DATE}" \
-    -o pem2jks ./cmd/pem2jks
+# Verify SHA256 checksum
+RUN echo "Verifying checksum..." && \
+    sha256sum -c pem2jks.sha256 && \
+    echo "✓ Checksum verified"
 
-# Final stage
+# Verify Cosign signature
+RUN echo "Verifying signature..." && \
+    cosign verify-blob pem2jks \
+      --signature pem2jks.sig \
+      --certificate pem2jks.pem \
+      --certificate-identity-regexp="https://github.com/marre/pem2jks/.*" \
+      --certificate-oidc-issuer="https://token.actions.githubusercontent.com" && \
+    echo "✓ Signature verified"
+
+# Final stage - use verified binary
 FROM scratch
-COPY --from=builder /build/pem2jks /pem2jks
+COPY --from=verifier /verify/pem2jks /pem2jks
 ENTRYPOINT ["/pem2jks"]

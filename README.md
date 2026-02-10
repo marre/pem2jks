@@ -349,6 +349,8 @@ MIIDh... (CA cert)
 
 ## Development
 
+### Building from Source
+
 ```bash
 # Run all checks and build
 make all
@@ -365,14 +367,41 @@ make test-integration
 # Format and lint code
 make lint
 
-# Build Docker image
-make docker
-
 # Clean build artifacts
 make clean
 
 # Show all available targets
 make help
+```
+
+### Docker Images
+
+The repository provides two Dockerfiles for different use cases:
+
+#### `Dockerfile` (Production)
+Used for official releases. This Dockerfile:
+- Downloads pre-built, signed binaries from GitHub releases
+- Verifies SHA256 checksums
+- Verifies Cosign signatures
+- Ensures maximum security and reproducibility
+
+**Note:** This Dockerfile requires signed binaries in the build context and is used by the release workflow.
+
+#### `Dockerfile.dev` (Development)
+Used for local development and testing. This Dockerfile:
+- Builds the binary from source code
+- Suitable for local development without signed binaries
+- Faster iteration during development
+
+```bash
+# Build development Docker image (builds from source)
+make docker-dev
+
+# Build multi-arch Docker images for development
+make docker-multiarch
+
+# Build and push multi-arch Docker images
+make docker-push
 ```
 
 ## License

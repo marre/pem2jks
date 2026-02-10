@@ -111,13 +111,57 @@ jobs:
             ${{ env.BINARY_NAME }}.sig
             ${{ env.BINARY_NAME }}.pem
 
+      - name: Upload artifacts for Docker build
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            ${{ env.BINARY_NAME }}
+            ${{ env.BINARY_NAME }}.sha256
+            ${{ env.BINARY_NAME }}.sig
+            ${{ env.BINARY_NAME }}.pem
+          retention-days: 1
+
   build-docker:
     name: Build and Push Docker
     runs-on: ubuntu-latest
-    needs: release
+    needs: [release, build-binaries]
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Set platform variables
+        id: platform
+        run: |
+          PLATFORM="${{ matrix.platform }}"
+          OS=$(echo $PLATFORM | cut -d'/' -f1)
+          ARCH=$(echo $PLATFORM | cut -d'/' -f2)
+          echo "os=${OS}" >> $GITHUB_OUTPUT
+          echo "arch=${ARCH}" >> $GITHUB_OUTPUT
+          echo "binary=pem2jks-${OS}-${ARCH}" >> $GITHUB_OUTPUT
+
+      - name: Download signed binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
+          path: ./binaries
+
+      - name: List downloaded files
+        run: |
+          echo "Downloaded files:"
+          ls -lh binaries/
+          
+          # Move files to root for Docker context
+          mv binaries/* .
+          
+          # Make binary executable
+          chmod +x ${{ steps.platform.outputs.binary }}
+          
+          echo "Files ready for Docker build:"
+          ls -lh pem2jks-*
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -151,24 +195,63 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/pem2jks:${{ needs.release.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/pem2jks:latest
+            ghcr.io/${{ github.repository_owner }}/pem2jks:${{ needs.release.outputs.version }}-${{ steps.platform.outputs.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ needs.release.outputs.version }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ github.event.head_commit.timestamp }}
+            TARGETOS=${{ steps.platform.outputs.os }}
+            TARGETARCH=${{ steps.platform.outputs.arch }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           sbom: true
           provenance: true
 
-      - name: Sign Docker images with Cosign
+      - name: Sign Docker image with Cosign
         run: |
-          echo "Signing images with keyless Cosign..."
+          echo "Signing image with keyless Cosign..."
           cosign sign --yes ghcr.io/${{ github.repository_owner }}/pem2jks@${{ steps.build-push.outputs.digest }}
           echo "✓ Image signed successfully"
           echo "Image digest: ${{ steps.build-push.outputs.digest }}"
+
+  create-docker-manifest:
+    name: Create Multi-Arch Manifest
+    runs-on: ubuntu-latest
+    needs: [release, build-docker]
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.0.0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        run: |
+          VERSION="${{ needs.release.outputs.version }}"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/pem2jks"
+          
+          # Create manifest for version tag
+          docker buildx imagetools create -t ${IMAGE}:${VERSION} \
+            ${IMAGE}:${VERSION}-amd64 \
+            ${IMAGE}:${VERSION}-arm64
+          
+          # Create manifest for latest tag
+          docker buildx imagetools create -t ${IMAGE}:latest \
+            ${IMAGE}:${VERSION}-amd64 \
+            ${IMAGE}:${VERSION}-arm64
+          
+          echo "✓ Multi-arch manifests created"
+          
+          # Get digests and sign the manifests
+          VERSION_DIGEST=$(docker buildx imagetools inspect ${IMAGE}:${VERSION} --format '{{json .Manifest.Digest}}' | tr -d '"')
+          LATEST_DIGEST=$(docker buildx imagetools inspect ${IMAGE}:latest --format '{{json .Manifest.Digest}}' | tr -d '"')
+          
+          echo "Signing multi-arch manifests..."
+          cosign sign --yes ${IMAGE}@${VERSION_DIGEST}
+          cosign sign --yes ${IMAGE}@${LATEST_DIGEST}
+          echo "✓ Multi-arch manifests signed successfully"
