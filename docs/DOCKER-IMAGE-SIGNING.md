@@ -1,8 +1,14 @@
-# Docker Image Signing
+# Docker Image Signing, SBOM, and Attestation
 
 ## Overview
 
-All Docker images published as part of the pem2jks release process are cryptographically signed using [Cosign](https://docs.sigstore.dev/cosign/overview/), which is part of the Sigstore project. This ensures the authenticity and integrity of the images.
+All Docker images published as part of the pem2jks release process include comprehensive supply chain security features:
+
+- **Cryptographic Signing**: Images are signed using [Cosign](https://docs.sigstore.dev/cosign/overview/) (part of Sigstore)
+- **SBOM (Software Bill of Materials)**: Automatically generated inventory of all components and dependencies
+- **Provenance Attestation**: Cryptographic proof of how the image was built
+
+These features ensure the authenticity, integrity, and transparency of the images.
 
 ## Signing Method
 
@@ -20,9 +26,11 @@ We use **keyless signing** with OIDC (OpenID Connect) based authentication:
 When a new version tag is pushed (e.g., `v1.0.0`), the GitHub Actions workflow:
 
 1. Builds multi-architecture Docker images (amd64 and arm64)
-2. Pushes images to GitHub Container Registry (ghcr.io)
-3. Uses Cosign to sign the image digest with GitHub's OIDC token
-4. Records the signature in the public transparency log
+2. Generates SBOM (Software Bill of Materials) for each image
+3. Creates provenance attestation with build metadata
+4. Pushes images, SBOM, and attestations to GitHub Container Registry (ghcr.io)
+5. Uses Cosign to sign the image digest with GitHub's OIDC token
+6. Records the signature in the public transparency log
 
 The signing process uses the following GitHub Actions permissions:
 - `id-token: write` - Required for OIDC token generation
@@ -31,6 +39,66 @@ The signing process uses the following GitHub Actions permissions:
 ### Signature Storage
 
 Signatures are stored as OCI artifacts in the same registry as the images, following the Sigstore specification. They are associated with the image digest (not tags) to ensure immutability.
+
+## SBOM and Provenance Attestation
+
+### What is SBOM?
+
+A Software Bill of Materials (SBOM) is a comprehensive inventory of all components, libraries, and dependencies included in the Docker image. The SBOM is automatically generated during the build process and includes:
+
+- Package names and versions
+- Licenses
+- Dependencies and their relationships
+- Component origins
+
+### What is Provenance Attestation?
+
+Provenance attestation provides cryptographic proof about how the image was built, including:
+
+- Source repository and commit SHA
+- Build environment details
+- Build parameters and arguments
+- Builder information
+- Build timestamp
+
+### Inspecting SBOM and Attestations
+
+You can inspect the SBOM and provenance attestations using Docker BuildKit tools:
+
+```bash
+# Inspect all attestations (SBOM and provenance)
+docker buildx imagetools inspect ghcr.io/marre/pem2jks:latest --format "{{ json .Provenance }}"
+
+# View SBOM specifically
+docker buildx imagetools inspect ghcr.io/marre/pem2jks:latest --format "{{ json .SBOM }}"
+
+# Using crane (from go-containerregistry)
+crane manifest ghcr.io/marre/pem2jks:latest | jq
+```
+
+### Downloading and Viewing SBOM
+
+To download and view the SBOM in a more readable format:
+
+```bash
+# Using Docker Buildx
+docker buildx imagetools inspect ghcr.io/marre/pem2jks:latest --format "{{ json .SBOM }}" > sbom.json
+
+# Using cosign to download attestations
+cosign download attestation ghcr.io/marre/pem2jks:latest > attestations.json
+
+# View as formatted JSON
+jq . sbom.json
+```
+
+### Benefits of SBOM and Attestations
+
+1. **Dependency Tracking**: Know exactly what's in your image
+2. **Vulnerability Management**: Identify vulnerable components quickly
+3. **License Compliance**: Understand license obligations
+4. **Supply Chain Transparency**: Full visibility into the build process
+5. **Audit Trail**: Cryptographic proof of build provenance
+6. **Reproducible Builds**: Verify builds can be reproduced with same inputs
 
 ## Verifying Signatures
 
@@ -148,8 +216,11 @@ spec:
 1. **Authenticity**: Verify that images were built by the official GitHub Actions workflow
 2. **Integrity**: Detect any tampering or modification of images after signing
 3. **Non-repudiation**: All signatures are recorded in an immutable transparency log
-4. **Supply chain security**: Part of a comprehensive software supply chain security strategy
+4. **Supply chain security**: SBOM and provenance provide complete supply chain transparency
 5. **Zero trust**: Don't trust images just because they're in a registry - verify them
+6. **Vulnerability Management**: SBOM enables rapid identification of vulnerable dependencies
+7. **Compliance**: Meet regulatory requirements for software supply chain security
+8. **Auditability**: Complete audit trail from source code to deployed image
 
 ## Troubleshooting
 
@@ -183,3 +254,6 @@ cosign verify ghcr.io/marre/pem2jks@sha256:... \
 - [GitHub OIDC in Actions](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect)
 - [Rekor Transparency Log](https://docs.sigstore.dev/rekor/overview/)
 - [SLSA Framework](https://slsa.dev/)
+- [SBOM Overview](https://www.cisa.gov/sbom)
+- [Docker BuildKit Attestations](https://docs.docker.com/build/attestations/)
+- [Supply Chain Levels for Software Artifacts (SLSA)](https://slsa.dev/spec/v1.0/)
