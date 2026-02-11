@@ -39,7 +39,7 @@ sboms:
   - artifacts: binary
     cmd: syft
     documents:
-      - "${artifact}.sbom.spdx.json"
+      - "{{ .ArtifactName }}.sbom.spdx.json"
 
 release:
   prerelease: auto
