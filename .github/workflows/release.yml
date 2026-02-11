@@ -43,7 +43,7 @@ jobs:
       - name: Attest binary artifacts
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: "dist/pem2jks-*"
+          subject-path: "dist/pem2jks_*/pem2jks"
 
   docker:
     name: Docker Image
