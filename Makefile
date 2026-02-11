@@ -59,37 +59,18 @@ clean:
 	rm -rf bin/
 	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
 
-# Build Docker image from signed binaries (requires pre-signed binaries in context)
-# This target is used in the release workflow after binaries are signed
-# For local development without signed binaries, use docker-dev target
+# Build Docker image from source
 docker:
-	docker build -t $(BINARY_NAME):$(VERSION) .
+	docker build -t $(BINARY_NAME):$(VERSION) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(DATE) \
+		.
 	docker tag $(BINARY_NAME):$(VERSION) $(BINARY_NAME):latest
-
-# Build Docker image for development (builds from source)
-docker-dev:
-	docker build -f Dockerfile.dev -t $(BINARY_NAME):$(VERSION)-dev \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg DATE=$(DATE) \
-		.
-	docker tag $(BINARY_NAME):$(VERSION)-dev $(BINARY_NAME):dev
-
-# Build multi-arch Docker image (requires docker buildx)
-docker-multiarch:
-	docker buildx build --platform linux/amd64,linux/arm64 \
-		-f Dockerfile.dev \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg DATE=$(DATE) \
-		-t $(BINARY_NAME):$(VERSION) \
-		-t $(BINARY_NAME):latest \
-		.
 
 # Build and push multi-arch Docker image
 docker-push:
 	docker buildx build --platform linux/amd64,linux/arm64 \
-		-f Dockerfile.dev \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg DATE=$(DATE) \
@@ -135,9 +116,7 @@ help:
 	@echo "  generate-certs   - Generate test certificates"
 	@echo "  install          - Install to GOPATH/bin"
 	@echo "  clean            - Remove build artifacts"
-	@echo "  docker           - Build Docker image (requires signed binaries)"
-	@echo "  docker-dev       - Build Docker image for development (builds from source)"
-	@echo "  docker-multiarch - Build multi-arch Docker image (amd64+arm64)"
+	@echo "  docker           - Build Docker image"
 	@echo "  docker-push      - Build and push multi-arch Docker image"
 	@echo "  fmt              - Format code"
 	@echo "  vet              - Run go vet"

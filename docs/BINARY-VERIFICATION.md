@@ -1,37 +1,25 @@
 # Binary Verification
 
-All binaries and archives published as part of releases are signed using [Cosign](https://docs.sigstore.dev/cosign/overview/) with keyless signing (OIDC-based) and include SHA256 checksums. This ensures the authenticity and integrity of the release artifacts.
+All binaries published as part of releases include SHA256 checksums and Cosign signatures. The checksums file is signed using [Cosign](https://docs.sigstore.dev/cosign/overview/) with keyless signing (OIDC-based), ensuring the authenticity and integrity of all release artifacts.
+
+## Release Artifacts
+
+Each release includes:
+- `pem2jks-{os}-{arch}` — Binaries for linux/darwin × amd64/arm64
+- `checksums.txt` — SHA256 checksums for all binaries
+- `checksums.txt.sigstore.json` — Cosign signature bundle for the checksums file
+- `pem2jks-{os}-{arch}.sbom.spdx.json` — SBOM for each binary
 
 ## Verifying Checksums
 
-Each release includes SHA256 checksum files for both binaries and archives. You can verify the integrity of downloaded files:
-
-### Download and Verify Archive
-
 ```bash
-# Download the binary archive and checksum
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.sha256
+# Download the binary and checksums
+VERSION="1.0.0"
+curl -LO "https://github.com/marre/pem2jks/releases/download/v${VERSION}/pem2jks-linux-amd64"
+curl -LO "https://github.com/marre/pem2jks/releases/download/v${VERSION}/checksums.txt"
 
 # Verify the checksum
-sha256sum -c pem2jks-linux-amd64.tar.gz.sha256
-
-# Expected output:
-# pem2jks-linux-amd64.tar.gz: OK
-
-# Extract the archive
-tar -xzf pem2jks-linux-amd64.tar.gz
-```
-
-### Download and Verify Binary Directly
-
-```bash
-# Download the binary and checksum
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.sha256
-
-# Verify the checksum
-sha256sum -c pem2jks-linux-amd64.sha256
+sha256sum --ignore-missing -c checksums.txt
 
 # Expected output:
 # pem2jks-linux-amd64: OK
@@ -40,23 +28,9 @@ sha256sum -c pem2jks-linux-amd64.sha256
 chmod +x pem2jks-linux-amd64
 ```
 
-### macOS Verification
+## Verifying Signatures
 
-```bash
-# Download the binary archive and checksum
-curl -LO https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-darwin-amd64.tar.gz
-curl -LO https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-darwin-amd64.tar.gz.sha256
-
-# Verify the checksum
-shasum -a 256 -c pem2jks-darwin-amd64.tar.gz.sha256
-
-# Expected output:
-# pem2jks-darwin-amd64.tar.gz: OK
-```
-
-## Verifying Binary Signatures
-
-All binaries are signed using Cosign with keyless signing. This provides cryptographic proof that the binary was built by the official GitHub Actions workflow.
+The checksums file is signed using Cosign with keyless signing. Verifying the signature of the checksums file, combined with checksum verification, cryptographically proves all binaries are authentic.
 
 ### Prerequisites
 
@@ -65,138 +39,68 @@ Install Cosign:
 - macOS: `brew install cosign`
 - Linux: Download from [releases](https://github.com/sigstore/cosign/releases)
 
-### Verify a Binary Signature
+### Verify the Checksums Signature
 
 ```bash
-# Download the binary and signature bundle
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.sigstore.json
+# Download the checksums and signature bundle
+VERSION="1.0.0"
+curl -LO "https://github.com/marre/pem2jks/releases/download/v${VERSION}/checksums.txt"
+curl -LO "https://github.com/marre/pem2jks/releases/download/v${VERSION}/checksums.txt.sigstore.json"
 
 # Verify the signature
-cosign verify-blob pem2jks-linux-amd64 \
-  --bundle pem2jks-linux-amd64.sigstore.json \
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 
-# Successful verification output will include:
-# Verified OK
-```
-
-### Verify an Archive Signature
-
-Archives are also signed and can be verified before extraction:
-
-```bash
-# Download the archive and signature bundle
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz
-wget https://github.com/marre/pem2jks/releases/download/v1.0.0/pem2jks-linux-amd64.tar.gz.sigstore.json
-
-# Verify the signature
-cosign verify-blob pem2jks-linux-amd64.tar.gz \
-  --bundle pem2jks-linux-amd64.tar.gz.sigstore.json \
-  --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
-
-# Successful verification output will include:
+# Expected output:
 # Verified OK
 ```
 
 ### What Does Signature Verification Prove?
 
 When verification succeeds, it proves:
-1. **Authenticity**: The binary was built by the official GitHub Actions workflow in this repository
-2. **Integrity**: The binary has not been modified since it was signed
+1. **Authenticity**: The checksums file was produced by the official GitHub Actions workflow
+2. **Integrity**: The checksums (and therefore the binaries) have not been modified since signing
 3. **Identity**: The signing certificate is tied to the repository's OIDC identity
 
 ## Complete Download and Verification Workflow
 
-Here's a complete example for downloading and verifying a release archive:
-
 ```bash
 #!/bin/bash
 set -e
 
-# Configuration
 VERSION="1.0.0"
 PLATFORM="linux-amd64"  # or darwin-amd64, linux-arm64, darwin-arm64
-BASE_URL="https://github.com/marre/pem2jks/releases/download/v${VERSION}"
-ARCHIVE="pem2jks-${PLATFORM}.tar.gz"
-
-# Download archive and verification files
-echo "Downloading release v${VERSION} for ${PLATFORM}..."
-curl -LO "${BASE_URL}/${ARCHIVE}"
-curl -LO "${BASE_URL}/${ARCHIVE}.sha256"
-curl -LO "${BASE_URL}/${ARCHIVE}.sigstore.json"
-
-# Verify checksum (works on both Linux and macOS)
-echo "Verifying archive checksum..."
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum -c "${ARCHIVE}.sha256" || exit 1
-elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 -c "${ARCHIVE}.sha256" || exit 1
-else
-  echo "Error: neither 'sha256sum' nor 'shasum' is available." >&2
-  echo "Please install coreutils (Linux) or use the built-in shasum (macOS)." >&2
-  exit 1
-fi
-
-# Verify archive signature
-echo "Verifying archive signature..."
-cosign verify-blob ${ARCHIVE} \
-  --bundle ${ARCHIVE}.sigstore.json \
-  --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
-
-# Extract archive (binary inside is verified by archive signature)
-echo "Extracting archive..."
-tar -xzf ${ARCHIVE}
-
-echo "✓ Verification successful! Archive and its contents are authentic and unmodified."
-echo "You can now use: ./pem2jks-${PLATFORM}"
-```
-
-### Alternative: Verify Standalone Binary
-
-If you download the standalone binary (not the archive), verify it separately:
-
-```bash
-#!/bin/bash
-set -e
-
-# Configuration
-VERSION="1.0.0"
-PLATFORM="linux-amd64"
 BASE_URL="https://github.com/marre/pem2jks/releases/download/v${VERSION}"
 BINARY="pem2jks-${PLATFORM}"
 
 # Download binary and verification files
-echo "Downloading binary..."
+echo "Downloading release v${VERSION} for ${PLATFORM}..."
 curl -LO "${BASE_URL}/${BINARY}"
-curl -LO "${BASE_URL}/${BINARY}.sha256"
-curl -LO "${BASE_URL}/${BINARY}.sigstore.json"
+curl -LO "${BASE_URL}/checksums.txt"
+curl -LO "${BASE_URL}/checksums.txt.sigstore.json"
 
-# Verify checksum
+# Verify checksums signature
+echo "Verifying checksums signature..."
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
+
+# Verify binary checksum
 echo "Verifying binary checksum..."
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum -c "${BINARY}.sha256" || exit 1
+  sha256sum --ignore-missing -c checksums.txt || exit 1
 elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 -c "${BINARY}.sha256" || exit 1
+  shasum -a 256 --ignore-missing -c checksums.txt || exit 1
 else
   echo "Error: neither 'sha256sum' nor 'shasum' is available." >&2
   exit 1
 fi
 
-# Verify binary signature
-echo "Verifying binary signature..."
-cosign verify-blob ${BINARY} \
-  --bundle ${BINARY}.sigstore.json \
-  --certificate-identity-regexp="https://github\\.com/marre/pem2jks/\\.github/workflows/release\\.yml@refs/tags/.*" \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" || exit 1
-
-# Make executable
-chmod +x ${BINARY}
-
-echo "✓ Verification successful! Binary is authentic and unmodified."
+chmod +x "${BINARY}"
+echo "Verification successful! Binary is authentic and unmodified."
 echo "You can now use: ./${BINARY}"
 ```
 
@@ -218,7 +122,7 @@ If checksum verification fails, the file may have been corrupted during download
 ### Signature Verification Fails
 
 If signature verification fails:
-- Ensure you have the correct `.sigstore.json` file for your binary
+- Ensure you have the correct `checksums.txt.sigstore.json` file
 - Check that you're using the correct certificate identity and issuer parameters
 - Verify you have the latest version of Cosign installed
 - If the issue persists, report it as a security issue

@@ -26,14 +26,14 @@ All binaries are signed using [Cosign](https://docs.sigstore.dev/cosign/overview
 ```bash
 # Download latest release (example for Linux amd64)
 VERSION="1.0.0"  # Replace with latest version
-curl -LO https://github.com/marre/pem2jks/releases/download/v${VERSION}/pem2jks-linux-amd64.tar.gz
-curl -LO https://github.com/marre/pem2jks/releases/download/v${VERSION}/pem2jks-linux-amd64.tar.gz.sha256
+curl -LO https://github.com/marre/pem2jks/releases/download/v${VERSION}/pem2jks-linux-amd64
+curl -LO https://github.com/marre/pem2jks/releases/download/v${VERSION}/checksums.txt
 
 # Verify checksum
-sha256sum -c pem2jks-linux-amd64.tar.gz.sha256
+sha256sum --ignore-missing -c checksums.txt
 
-# Extract and use
-tar -xzf pem2jks-linux-amd64.tar.gz
+# Make executable and use
+chmod +x pem2jks-linux-amd64
 ./pem2jks-linux-amd64 --help
 ```
 
@@ -376,33 +376,15 @@ make help
 
 ### Docker Images
 
-The repository provides two Dockerfiles for different use cases:
-
-#### `Dockerfile` (Production)
-Used for official releases. This Dockerfile:
-- Uses pre-built, signed binaries from the build context (provided by the release workflow)
-- Verifies SHA256 checksums
-- Verifies Cosign signatures
-- Ensures maximum security and reproducibility
-
-**Note:** This Dockerfile requires signed binaries in the build context and is used by the release workflow.
-
-#### `Dockerfile.dev` (Development)
-Used for local development and testing. This Dockerfile:
-- Builds the binary from source code
-- Suitable for local development without signed binaries
-- Faster iteration during development
-
 ```bash
-# Build development Docker image (builds from source)
-make docker-dev
-
-# Build multi-arch Docker images for development
-make docker-multiarch
+# Build Docker image locally
+make docker
 
 # Build and push multi-arch Docker images
 make docker-push
 ```
+
+The `Dockerfile` builds the binary from source in a multi-stage build and produces a minimal scratch-based image. Release images are built, pushed, and signed automatically by the CI pipeline using GoReleaser and Docker Buildx.
 
 ## License
 
