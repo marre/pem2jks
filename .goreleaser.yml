@@ -42,5 +42,7 @@ sboms:
       - "${artifact}.sbom.spdx.json"
 
 release:
-  generate_release_notes: true
   prerelease: auto
+
+changelog:
+  use: github-native
