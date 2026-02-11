@@ -379,12 +379,9 @@ make help
 ```bash
 # Build Docker image locally
 make docker
-
-# Build and push multi-arch Docker images
-make docker-push
 ```
 
-The `Dockerfile` builds the binary from source in a multi-stage build and produces a minimal scratch-based image. Release images are built, pushed, and signed automatically by the CI pipeline using GoReleaser and Docker Buildx.
+The `Dockerfile` is a minimal scratch-based image that copies the pre-built binary. Release images are built, pushed, and signed automatically by [GoReleaser](https://goreleaser.com/) using Docker Buildx.
 
 ## License
 

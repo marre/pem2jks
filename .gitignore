@@ -23,3 +23,6 @@ Thumbs.db
 # Coverage
 coverage.out
 coverage.html
+
+# The binary
+pem2jks
