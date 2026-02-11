@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    name: Release Binaries
+    name: Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,6 +32,19 @@ jobs:
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -44,59 +57,3 @@ jobs:
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: "dist/pem2jks_*/pem2jks"
-
-  docker:
-    name: Docker Image
-    runs-on: ubuntu-latest
-    needs: release
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.10.1
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/pem2jks
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
-
-      - name: Sign image
-        run: cosign sign --yes ghcr.io/${{ github.repository_owner }}/pem2jks@${{ steps.build-push.outputs.digest }}

@@ -59,25 +59,19 @@ clean:
 	rm -rf bin/
 	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
 
-# Build Docker image from source
-docker:
-	docker build -t $(BINARY_NAME):$(VERSION) \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg DATE=$(DATE) \
-		.
+# Build Docker image (requires binary in bin/)
+docker: static
+	cp bin/$(BINARY_NAME) $(BINARY_NAME)
+	docker build -t $(BINARY_NAME):$(VERSION) .
 	docker tag $(BINARY_NAME):$(VERSION) $(BINARY_NAME):latest
+	rm -f $(BINARY_NAME)
 
-# Build and push multi-arch Docker image
+# Build and push multi-arch Docker image (not supported with COPY-only Dockerfile locally)
+# Use GoReleaser for multi-arch releases: the release workflow handles this
 docker-push:
-	docker buildx build --platform linux/amd64,linux/arm64 \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
-		--build-arg DATE=$(DATE) \
-		-t $(BINARY_NAME):$(VERSION) \
-		-t $(BINARY_NAME):latest \
-		--push \
-		.
+	@echo "Multi-arch Docker builds are handled by GoReleaser in the release workflow."
+	@echo "For local builds, use: make docker"
+	@exit 1
 
 # Format code
 fmt:

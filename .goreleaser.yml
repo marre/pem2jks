@@ -35,11 +35,52 @@ signs:
     artifacts: checksum
     output: true
 
+docker_signs:
+  - cmd: cosign
+    args:
+      - sign
+      - --yes
+      - ${artifact}
+    artifacts: manifests
+    output: true
+
 sboms:
   - artifacts: binary
     cmd: syft
     documents:
       - "{{ .ArtifactName }}.sbom.spdx.json"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    goarch: amd64
+    extra_files:
+      - LICENSE.txt
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    goarch: arm64
+    extra_files:
+      - LICENSE.txt
+
+docker_manifests:
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:latest"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks:{{ .Version }}-arm64"
 
 release:
   prerelease: auto
