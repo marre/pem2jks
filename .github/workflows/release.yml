@@ -8,44 +8,18 @@ on:
 permissions:
   contents: write
   packages: write
-  id-token: write  # Required for OIDC-based keyless signing with Cosign
+  id-token: write
+  attestations: write
 
 jobs:
   release:
-    name: Create Release
+    name: Release
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Get version
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref, '-') }}
-
-  build-binaries:
-    name: Build Binaries
-    runs-on: ubuntu-latest
-    needs: release
-    strategy:
-      matrix:
-        goos: [linux, darwin]
-        goarch: [amd64, arm64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -53,123 +27,10 @@ jobs:
           go-version: "1.25"
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.0.0
-
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Listing files:"
-          ls -la
-          echo "Listing cmd directory:"
-          ls -la cmd/
-          VERSION=${{ needs.release.outputs.version }}
-          COMMIT=${GITHUB_SHA::8}
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          BINARY_NAME="pem2jks-${GOOS}-${GOARCH}"
-          CGO_ENABLED=0 go build \
-            -ldflags="-s -w -X main.Version=${VERSION} -X main.GitCommit=${COMMIT} -X main.BuildDate=${DATE}" \
-            -o ${BINARY_NAME} \
-            ./cmd/pem2jks
-
-      - name: Set binary name
-        run: |
-          BINARY_NAME="pem2jks-${{ matrix.goos }}-${{ matrix.goarch }}"
-          echo "BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
-
-      - name: Generate checksums
-        run: |
-          BINARY_NAME="${{ env.BINARY_NAME }}"
-          echo "Generating SHA256 checksums..."
-          sha256sum ${BINARY_NAME} > ${BINARY_NAME}.sha256
-          echo "✓ Checksums generated:"
-          cat ${BINARY_NAME}.sha256
+        uses: sigstore/cosign-installer@v3.10.1
 
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0
-
-      - name: Generate SBOM
-        run: |
-          BINARY_NAME="${{ env.BINARY_NAME }}"
-          VERSION=${{ needs.release.outputs.version }}
-          echo "Generating SBOM for ${BINARY_NAME}..."
-          syft . \
-            --override-default-catalogers go-module-file-cataloger \
-            --enrich golang \
-            -o spdx-json=${BINARY_NAME}.sbom.spdx.json \
-            --source-name=${BINARY_NAME} \
-            --source-version=${VERSION}
-          echo "✓ SBOM generated"
-
-      - name: Sign binary with Cosign
-        run: |
-          BINARY_NAME="${{ env.BINARY_NAME }}"
-          
-          echo "Signing binary ${BINARY_NAME} with keyless Cosign..."
-          cosign sign-blob --yes ${BINARY_NAME} --bundle ${BINARY_NAME}.sigstore.json
-          echo "✓ Binary signed successfully"
-
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ${{ env.BINARY_NAME }}
-            ${{ env.BINARY_NAME }}.sha256
-            ${{ env.BINARY_NAME }}.sigstore.json
-            ${{ env.BINARY_NAME }}.sbom.spdx.json
-
-      - name: Upload artifacts for Docker build
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: |
-            ${{ env.BINARY_NAME }}
-            ${{ env.BINARY_NAME }}.sha256
-            ${{ env.BINARY_NAME }}.sigstore.json
-          retention-days: 1
-
-  build-docker:
-    name: Build and Push Docker
-    runs-on: ubuntu-latest
-    needs: [release, build-binaries]
-    strategy:
-      matrix:
-        platform: [linux/amd64, linux/arm64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set platform variables
-        id: platform
-        run: |
-          PLATFORM="${{ matrix.platform }}"
-          OS=$(echo $PLATFORM | cut -d'/' -f1)
-          ARCH=$(echo $PLATFORM | cut -d'/' -f2)
-          echo "os=${OS}" >> $GITHUB_OUTPUT
-          echo "arch=${ARCH}" >> $GITHUB_OUTPUT
-          echo "binary=pem2jks-${OS}-${ARCH}" >> $GITHUB_OUTPUT
-
-      - name: Download signed binary artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: binary-${{ steps.platform.outputs.os }}-${{ steps.platform.outputs.arch }}
-          path: ./binaries
-
-      - name: List downloaded files
-        run: |
-          echo "Downloaded files:"
-          ls -lh binaries/
-          
-          # Move files to root for Docker context
-          cp -r binaries/. .
-          
-          # Make binary executable
-          chmod +x ${{ steps.platform.outputs.binary }}
-          
-          echo "Files ready for Docker build:"
-          ls -lh pem2jks-*
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -177,9 +38,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.0.0
-
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -187,79 +45,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/pem2jks
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
-        id: build-push
-        uses: docker/build-push-action@v6
+      - name: Attest binary artifacts
+        uses: actions/attest-build-provenance@v1
         with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/pem2jks:${{ needs.release.outputs.version }}-${{ steps.platform.outputs.arch }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            TARGETOS=${{ steps.platform.outputs.os }}
-            TARGETARCH=${{ steps.platform.outputs.arch }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
-
-      - name: Sign Docker image with Cosign
-        run: |
-          echo "Signing image with keyless Cosign..."
-          cosign sign --yes ghcr.io/${{ github.repository_owner }}/pem2jks@${{ steps.build-push.outputs.digest }}
-          echo "✓ Image signed successfully"
-          echo "Image digest: ${{ steps.build-push.outputs.digest }}"
-
-  create-docker-manifest:
-    name: Create Multi-Arch Manifest
-    runs-on: ubuntu-latest
-    needs: [release, build-docker]
-    steps:
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.0.0
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create and push multi-arch manifest
-        run: |
-          VERSION="${{ needs.release.outputs.version }}"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/pem2jks"
-          
-          # Create manifest for version tag
-          docker buildx imagetools create -t ${IMAGE}:${VERSION} \
-            ${IMAGE}:${VERSION}-amd64 \
-            ${IMAGE}:${VERSION}-arm64
-          
-          # Create manifest for latest tag
-          docker buildx imagetools create -t ${IMAGE}:latest \
-            ${IMAGE}:${VERSION}-amd64 \
-            ${IMAGE}:${VERSION}-arm64
-          
-          echo "✓ Multi-arch manifests created"
-          
-          # Get digests and sign the manifests
-          VERSION_DIGEST=$(docker buildx imagetools inspect ${IMAGE}:${VERSION} --format '{{json .Manifest.Digest}}' | tr -d '"')
-          LATEST_DIGEST=$(docker buildx imagetools inspect ${IMAGE}:latest --format '{{json .Manifest.Digest}}' | tr -d '"')
-          
-          echo "Signing multi-arch manifests..."
-          cosign sign --yes ${IMAGE}@${VERSION_DIGEST}
-          cosign sign --yes ${IMAGE}@${LATEST_DIGEST}
-          echo "✓ Multi-arch manifests signed successfully"
+          subject-path: "dist/pem2jks_*/pem2jks"
