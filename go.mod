@@ -5,7 +5,6 @@ go 1.25
 require (
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go v0.40.0
-	software.sslmate.com/src/go-pkcs12 v0.7.0
 )
 
 require (

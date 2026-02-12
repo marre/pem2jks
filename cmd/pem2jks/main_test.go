@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/marre/pem2jks/pkg/keystore"
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 // generateTestCert generates a test certificate and key for testing
@@ -86,119 +85,6 @@ func TestCreateJKSKeystoreMultipleCerts(t *testing.T) {
 	}
 
 	t.Logf("Created JKS with 2 private key entries, size: %d bytes", len(jksData))
-}
-
-func TestCreatePKCS12KeystoreWithCA(t *testing.T) {
-	// Generate test cert and CA
-	certPEM, keyPEM := generateTestCert(t, "app.example.com")
-	caPEM, _ := generateTestCert(t, "CA")
-
-	// Prepare cert/key pair and CA
-	pairs := []certKeyPair{
-		{certPEM: certPEM, keyPEM: keyPEM, alias: "app"},
-	}
-	caPairs := []certKeyPair{
-		{certPEM: caPEM, alias: "ca"},
-	}
-
-	// Create PKCS#12 keystore with CA
-	p12Data, err := createPKCS12Keystore(pairs, caPairs, "changeit", "", "changeit")
-	if err != nil {
-		t.Fatalf("Failed to create PKCS#12 keystore: %v", err)
-	}
-
-	if len(p12Data) == 0 {
-		t.Error("PKCS#12 keystore data is empty")
-	}
-
-	// Verify we can decode it
-	privKey, cert, caCerts, err := pkcs12.DecodeChain(p12Data, "changeit")
-	if err != nil {
-		t.Fatalf("Failed to decode PKCS#12: %v", err)
-	}
-
-	if privKey == nil {
-		t.Error("Private key is nil")
-	}
-	if cert == nil {
-		t.Error("Certificate is nil")
-	}
-	if len(caCerts) != 1 {
-		t.Errorf("Expected 1 CA cert, got %d", len(caCerts))
-	}
-
-	t.Logf("Created PKCS#12 with 1 private key and 1 CA cert, size: %d bytes", len(p12Data))
-}
-
-func TestPKCS12AppendToTruststore(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// Create initial truststore with one CA
-	ca1PEM, _ := generateTestCert(t, "CA1")
-
-	pairs1 := []certKeyPair{
-		{certPEM: ca1PEM, keyPEM: nil, alias: "ca1"},
-	}
-
-	p12Data1, err := createPKCS12Keystore(pairs1, nil, "changeit", "", "changeit")
-	if err != nil {
-		t.Fatalf("Failed to create initial PKCS#12: %v", err)
-	}
-
-	// Write to file
-	inputFile := filepath.Join(tempDir, "truststore.p12")
-	if err := os.WriteFile(inputFile, p12Data1, 0600); err != nil {
-		t.Fatalf("Failed to write truststore: %v", err)
-	}
-
-	// Add another CA
-	ca2PEM, _ := generateTestCert(t, "CA2")
-
-	pairs2 := []certKeyPair{
-		{certPEM: ca2PEM, keyPEM: nil, alias: "ca2"},
-	}
-
-	// Append to existing truststore
-	p12Data2, err := createPKCS12Keystore(pairs2, nil, "changeit", inputFile, "changeit")
-	if err != nil {
-		t.Fatalf("Failed to append to PKCS#12: %v", err)
-	}
-
-	if len(p12Data2) == 0 {
-		t.Error("Appended PKCS#12 keystore data is empty")
-	}
-
-	// Verify we have 2 certs now
-	certs, err := pkcs12.DecodeTrustStore(p12Data2, "changeit")
-	if err != nil {
-		t.Fatalf("Failed to decode appended PKCS#12: %v", err)
-	}
-
-	if len(certs) != 2 {
-		t.Errorf("Expected 2 certs in truststore, got %d", len(certs))
-	}
-
-	t.Logf("Appended to PKCS#12 truststore, now has %d certs", len(certs))
-}
-
-func TestPKCS12OnlyOnePrivateKey(t *testing.T) {
-	// Generate two cert/key pairs
-	cert1PEM, key1PEM := generateTestCert(t, "app1.example.com")
-	cert2PEM, key2PEM := generateTestCert(t, "app2.example.com")
-
-	// Try to create PKCS#12 with two private keys (should fail)
-	pairs := []certKeyPair{
-		{certPEM: cert1PEM, keyPEM: key1PEM, alias: "app1"},
-		{certPEM: cert2PEM, keyPEM: key2PEM, alias: "app2"},
-	}
-
-	_, err := createPKCS12Keystore(pairs, nil, "changeit", "", "changeit")
-	if err == nil {
-		t.Error("Expected error when creating PKCS#12 with multiple private keys, got nil")
-	}
-	if err != nil {
-		t.Logf("Got expected error: %v", err)
-	}
 }
 
 func TestMultipleCAFiles(t *testing.T) {

@@ -14,8 +14,6 @@ import (
 	"io"
 	"strings"
 	"time"
-
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 const (
@@ -716,15 +714,6 @@ func ParsePEMPrivateKey(pemData []byte) ([]byte, error) {
 	}
 }
 
-// parsePEMPrivateKeyRaw parses a PEM private key and returns the raw key object.
-func parsePEMPrivateKeyRaw(pemData []byte) (interface{}, error) {
-	pkcs8Data, err := ParsePEMPrivateKey(pemData)
-	if err != nil {
-		return nil, err
-	}
-	return x509.ParsePKCS8PrivateKey(pkcs8Data)
-}
-
 // CreateJKSFromPEM creates a JKS keystore from PEM data.
 func CreateJKSFromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
 	ks := NewJKS()
@@ -782,109 +771,6 @@ func CreateJKSFromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]
 
 	if len(ks.Entries) == 0 {
 		return nil, errors.New("no entries to add to keystore")
-	}
-
-	return ks.Marshal(password)
-}
-
-// PKCS12KeyStore represents a PKCS#12 keystore.
-type PKCS12KeyStore struct {
-	PrivateKey   interface{}
-	Certificate  *x509.Certificate
-	CACerts      []*x509.Certificate
-	TrustedCerts []*x509.Certificate
-}
-
-// NewPKCS12 creates a new empty PKCS12KeyStore.
-func NewPKCS12() *PKCS12KeyStore {
-	return &PKCS12KeyStore{}
-}
-
-// SetPrivateKey sets the private key and its certificate.
-func (ks *PKCS12KeyStore) SetPrivateKey(key interface{}, cert *x509.Certificate) {
-	ks.PrivateKey = key
-	ks.Certificate = cert
-}
-
-// AddCACert adds a CA certificate to the chain.
-func (ks *PKCS12KeyStore) AddCACert(cert *x509.Certificate) {
-	ks.CACerts = append(ks.CACerts, cert)
-}
-
-// AddTrustedCert adds a trusted certificate (for truststores).
-func (ks *PKCS12KeyStore) AddTrustedCert(cert *x509.Certificate) {
-	ks.TrustedCerts = append(ks.TrustedCerts, cert)
-}
-
-// Marshal serializes the keystore to PKCS#12 format.
-func (ks *PKCS12KeyStore) Marshal(password string) ([]byte, error) {
-	if ks.PrivateKey != nil {
-		return pkcs12.Modern.Encode(ks.PrivateKey, ks.Certificate, ks.CACerts, password)
-	}
-
-	if len(ks.TrustedCerts) == 0 && len(ks.CACerts) == 0 {
-		return nil, errors.New("no certificates to encode")
-	}
-
-	allCerts := append(ks.TrustedCerts, ks.CACerts...)
-	return pkcs12.Modern.EncodeTrustStore(allCerts, password)
-}
-
-// CreatePKCS12FromPEM creates a PKCS#12 keystore from PEM data.
-func CreatePKCS12FromPEM(certPEM, keyPEM, caPEM []byte, password, alias string) ([]byte, error) {
-	ks := NewPKCS12()
-
-	var certChain []*x509.Certificate
-	if len(certPEM) > 0 {
-		certs, err := ParsePEMCertificates(certPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse certificate: %w", err)
-		}
-		for _, certDER := range certs {
-			cert, err := x509.ParseCertificate(certDER)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse certificate: %w", err)
-			}
-			certChain = append(certChain, cert)
-		}
-	}
-
-	if len(keyPEM) > 0 {
-		if len(certChain) == 0 {
-			return nil, errors.New("private key provided but no certificate")
-		}
-
-		key, err := parsePEMPrivateKeyRaw(keyPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse private key: %w", err)
-		}
-
-		ks.SetPrivateKey(key, certChain[0])
-		for _, caCert := range certChain[1:] {
-			ks.AddCACert(caCert)
-		}
-	} else if len(certChain) > 0 {
-		for _, cert := range certChain {
-			ks.AddTrustedCert(cert)
-		}
-	}
-
-	if len(caPEM) > 0 {
-		caCerts, err := ParsePEMCertificates(caPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CA certificates: %w", err)
-		}
-		for _, certDER := range caCerts {
-			cert, err := x509.ParseCertificate(certDER)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
-			}
-			if ks.PrivateKey != nil {
-				ks.AddCACert(cert)
-			} else {
-				ks.AddTrustedCert(cert)
-			}
-		}
 	}
 
 	return ks.Marshal(password)

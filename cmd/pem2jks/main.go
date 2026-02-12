@@ -2,7 +2,6 @@
 package main
 
 import (
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/marre/pem2jks/pkg/keystore"
 	"github.com/spf13/cobra"
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 // Version information (set by ldflags)
@@ -35,7 +33,6 @@ var (
 	password      string
 	passwordFile  string
 	inputPassword string
-	format        string
 	inputFile     string
 )
 
@@ -49,16 +46,13 @@ var rootCmd = &cobra.Command{
 	Use:   "pem2jks",
 	Short: "Convert PEM certificates to Java KeyStore format",
 	Long: `pem2jks is a tool for converting PEM-encoded certificates and private keys
-into Java KeyStore (JKS) or PKCS#12 format.
+into Java KeyStore (JKS) format.
 
 It is designed for use in Kubernetes environments where certificates are
 typically provided in PEM format (e.g., from cert-manager) but Java
-applications require JKS or PKCS#12 keystores.`,
+applications require JKS keystores.`,
 	Example: `  # Create JKS keystore with private key and certificate
   pem2jks -c tls.crt:tls.key -p changeit -o keystore.jks
-
-  # Create PKCS#12 keystore
-  pem2jks -c tls.crt:tls.key -p changeit -f pkcs12
 
   # Create keystore with multiple cert/key pairs and custom aliases
   pem2jks -c app1.crt:app1.key:app1 -c app2.crt:app2.key:app2 -p changeit
@@ -74,7 +68,7 @@ applications require JKS or PKCS#12 keystores.`,
   pem2jks -c tls.crt:tls.key --ca ca1.crt:root-ca --ca ca2.crt:intermediate -p changeit
 
   # Create truststore (CA certs only, no private key)
-  pem2jks --ca ca.crt:my-ca -p changeit -f pkcs12 -o truststore.p12
+  pem2jks --ca ca.crt:my-ca -p changeit -o truststore.jks
 
   # Use environment variable for password
   export KEYSTORE_PASSWORD=changeit
@@ -98,33 +92,18 @@ func init() {
 	// Define flags
 	rootCmd.Flags().StringArrayVarP(&certs, "cert", "c", []string{}, "certificate and key entry in format cert.pem[:key.pem[:alias]] (repeatable)")
 	rootCmd.Flags().StringArrayVar(&cas, "ca", []string{}, "CA certificate in format ca.pem[:alias] (repeatable)")
-	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "output keystore file path (default based on format)")
+	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "", "output keystore file path (default: keystore.jks)")
 	rootCmd.Flags().StringVarP(&password, "password", "p", "", "keystore password (or use KEYSTORE_PASSWORD env)")
 	rootCmd.Flags().StringVar(&passwordFile, "password-file", "", "file containing keystore password")
 	rootCmd.Flags().StringVar(&inputPassword, "input-password", "", "password for input keystore (defaults to --password if not specified)")
-	rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
-	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
+	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing JKS keystore file to append to")
 }
 
 func runConvert(cmd *cobra.Command, args []string) error {
-	// Normalize and validate format
-	keystoreFormat := strings.ToLower(format)
-	switch keystoreFormat {
-	case "jks", "pkcs12", "p12":
-		// valid
-	default:
-		return fmt.Errorf("invalid format %q (use jks, pkcs12, or p12)", format)
-	}
-
-	// Set default output filename based on format
+	// Set default output filename
 	outputPath := outputFile
 	if outputPath == "" {
-		switch keystoreFormat {
-		case "jks":
-			outputPath = "keystore.jks"
-		case "pkcs12", "p12":
-			outputPath = "keystore.p12"
-		}
+		outputPath = "keystore.jks"
 	}
 
 	// Get output password
@@ -158,16 +137,8 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create keystore based on format
-	var keystoreData []byte
-
-	switch keystoreFormat {
-	case "jks":
-		keystoreData, err = createJKSKeystore(pairs, caPairs, keystorePassword, inputFile, inputKeystorePassword)
-	case "pkcs12", "p12":
-		keystoreData, err = createPKCS12Keystore(pairs, caPairs, keystorePassword, inputFile, inputKeystorePassword)
-	}
-
+	// Create JKS keystore
+	keystoreData, err := createJKSKeystore(pairs, caPairs, keystorePassword, inputFile, inputKeystorePassword)
 	if err != nil {
 		return fmt.Errorf("creating keystore: %w", err)
 	}
@@ -256,109 +227,6 @@ func createJKSKeystore(pairs []certKeyPair, caPairs []certKeyPair, password stri
 
 	if len(ks.Entries) == 0 {
 		return nil, errors.New("no entries to add to keystore")
-	}
-
-	return ks.Marshal(password)
-}
-
-func createPKCS12Keystore(pairs []certKeyPair, caPairs []certKeyPair, password string, inputFile string, inputPassword string) ([]byte, error) {
-	ks := keystore.NewPKCS12()
-
-	// Load existing keystore if provided
-	if inputFile != "" {
-		existingData, err := os.ReadFile(inputFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read input file: %w", err)
-		}
-
-		// Try to decode as keystore with private key
-		privKey, cert, caCerts, err := pkcs12.DecodeChain(existingData, inputPassword)
-		if err == nil && privKey != nil {
-			// Has private key
-			ks.SetPrivateKey(privKey, cert)
-			for _, caCert := range caCerts {
-				ks.AddCACert(caCert)
-			}
-		} else {
-			// Try as truststore
-			certs, err := pkcs12.DecodeTrustStore(existingData, inputPassword)
-			if err != nil {
-				return nil, fmt.Errorf("failed to decode existing keystore: %w", err)
-			}
-			for _, cert := range certs {
-				ks.AddTrustedCert(cert)
-			}
-		}
-	}
-
-	// Add new cert/key pairs
-	for _, pair := range pairs {
-		var certChain []*x509.Certificate
-		if len(pair.certPEM) > 0 {
-			certs, err := keystore.ParsePEMCertificates(pair.certPEM)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse certificate for alias %s: %w", pair.alias, err)
-			}
-			for _, certDER := range certs {
-				cert, err := x509.ParseCertificate(certDER)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse certificate for alias %s: %w", pair.alias, err)
-				}
-				certChain = append(certChain, cert)
-			}
-		}
-
-		if len(pair.keyPEM) > 0 {
-			if len(certChain) == 0 {
-				return nil, fmt.Errorf("private key provided but no certificate for alias %s", pair.alias)
-			}
-
-			pkcs8Data, err := keystore.ParsePEMPrivateKey(pair.keyPEM)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse private key for alias %s: %w", pair.alias, err)
-			}
-			key, err := x509.ParsePKCS8PrivateKey(pkcs8Data)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse PKCS8 private key for alias %s: %w", pair.alias, err)
-			}
-
-			// For PKCS12, we can only have one private key entry
-			if ks.PrivateKey != nil {
-				return nil, fmt.Errorf("PKCS#12 format only supports one private key entry (alias %s conflicts with existing)", pair.alias)
-			}
-
-			ks.SetPrivateKey(key, certChain[0])
-			for _, caCert := range certChain[1:] {
-				ks.AddCACert(caCert)
-			}
-		} else if len(certChain) > 0 {
-			for _, cert := range certChain {
-				if ks.PrivateKey != nil {
-					ks.AddCACert(cert)
-				} else {
-					ks.AddTrustedCert(cert)
-				}
-			}
-		}
-	}
-
-	// Add CA certificates
-	for _, caPair := range caPairs {
-		caCerts, err := keystore.ParsePEMCertificates(caPair.certPEM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CA certificate for alias %s: %w", caPair.alias, err)
-		}
-		for _, certDER := range caCerts {
-			cert, err := x509.ParseCertificate(certDER)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse CA certificate for alias %s: %w", caPair.alias, err)
-			}
-			if ks.PrivateKey != nil {
-				ks.AddCACert(cert)
-			} else {
-				ks.AddTrustedCert(cert)
-			}
-		}
 	}
 
 	return ks.Marshal(password)
