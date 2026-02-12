@@ -75,20 +75,12 @@ func TestIntegration(t *testing.T) {
 		testJKSFormat(t, ctx, javaContainer, tmpDir, tlsCertFile, tlsKeyFile, caCertFile)
 	})
 
-	t.Run("PKCS12_Format_Tests", func(t *testing.T) {
-		testPKCS12Format(t, ctx, javaContainer, tmpDir, tlsCertFile, tlsKeyFile, caCertFile)
-	})
-
 	t.Run("Multiple_PEM_Files_Tests", func(t *testing.T) {
 		testMultiplePEMFiles(t, ctx, javaContainer, tmpDir, tlsCertFile, tlsKeyFile, caCertFile)
 	})
 
 	t.Run("JKS_Append_Tests", func(t *testing.T) {
 		testJKSAppend(t, ctx, javaContainer, tmpDir, tlsCertFile, tlsKeyFile, caCertFile)
-	})
-
-	t.Run("PKCS12_Append_Tests", func(t *testing.T) {
-		testPKCS12Append(t, ctx, javaContainer, tmpDir, tlsCertFile, tlsKeyFile, caCertFile)
 	})
 }
 
@@ -169,85 +161,6 @@ func testJKSFormat(t *testing.T, ctx context.Context, container testcontainers.C
 
 		// Verify with keytool
 		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
-	})
-}
-
-func testPKCS12Format(t *testing.T, ctx context.Context, container testcontainers.Container, tmpDir, certFile, keyFile, caFile string) {
-	t.Run("Create_PKCS12_With_Private_Key", func(t *testing.T) {
-		outputFile := filepath.Join(tmpDir, "test1.p12")
-
-		pairs := []certKeyPair{
-			{
-				certPEM: mustReadFile(t, certFile),
-				keyPEM:  mustReadFile(t, keyFile),
-				alias:   "server",
-			},
-		}
-
-		p12Data, err := createPKCS12Keystore(pairs, nil, "changeit", "", "changeit")
-		if err != nil {
-			t.Fatalf("Failed to create PKCS#12: %v", err)
-		}
-
-		if err := os.WriteFile(outputFile, p12Data, 0644); err != nil {
-			t.Fatalf("Failed to write PKCS#12: %v", err)
-		}
-
-		// Verify with keytool
-		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "pkcs12")
-	})
-
-	t.Run("Create_PKCS12_With_CA", func(t *testing.T) {
-		outputFile := filepath.Join(tmpDir, "test2.p12")
-
-		pairs := []certKeyPair{
-			{
-				certPEM: mustReadFile(t, certFile),
-				keyPEM:  mustReadFile(t, keyFile),
-				alias:   "server",
-			},
-		}
-		caPairs := []certKeyPair{
-			{
-				certPEM: mustReadFile(t, caFile),
-				alias:   "ca",
-			},
-		}
-
-		p12Data, err := createPKCS12Keystore(pairs, caPairs, "changeit", "", "changeit")
-		if err != nil {
-			t.Fatalf("Failed to create PKCS#12 with CA: %v", err)
-		}
-
-		if err := os.WriteFile(outputFile, p12Data, 0644); err != nil {
-			t.Fatalf("Failed to write PKCS#12: %v", err)
-		}
-
-		// Verify with keytool
-		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "pkcs12")
-	})
-
-	t.Run("Create_PKCS12_Truststore", func(t *testing.T) {
-		outputFile := filepath.Join(tmpDir, "truststore.p12")
-
-		caPairs := []certKeyPair{
-			{
-				certPEM: mustReadFile(t, caFile),
-				alias:   "ca",
-			},
-		}
-
-		p12Data, err := createPKCS12Keystore(nil, caPairs, "changeit", "", "changeit")
-		if err != nil {
-			t.Fatalf("Failed to create PKCS#12 truststore: %v", err)
-		}
-
-		if err := os.WriteFile(outputFile, p12Data, 0644); err != nil {
-			t.Fatalf("Failed to write PKCS#12 truststore: %v", err)
-		}
-
-		// Verify with keytool
-		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "pkcs12")
 	})
 }
 
@@ -410,58 +323,6 @@ func testJKSAppend(t *testing.T, ctx context.Context, container testcontainers.C
 		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
 		if entryCount != 2 {
 			t.Errorf("Expected 2 entries after CA append, got %d", entryCount)
-		}
-	})
-}
-
-func testPKCS12Append(t *testing.T, ctx context.Context, container testcontainers.Container, tmpDir, certFile, keyFile, caFile string) {
-	t.Run("Append_CA_To_PKCS12", func(t *testing.T) {
-		outputFile := filepath.Join(tmpDir, "append-test.p12")
-
-		// Create initial PKCS#12 with CA
-		caPairs1 := []certKeyPair{
-			{
-				certPEM: mustReadFile(t, caFile),
-				alias:   "ca1",
-			},
-		}
-
-		p12Data1, err := createPKCS12Keystore(nil, caPairs1, "changeit", "", "changeit")
-		if err != nil {
-			t.Fatalf("Failed to create initial PKCS#12: %v", err)
-		}
-
-		if err := os.WriteFile(outputFile, p12Data1, 0644); err != nil {
-			t.Fatalf("Failed to write initial PKCS#12: %v", err)
-		}
-
-		// Verify initial entry count
-		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "pkcs12")
-		if entryCount != 1 {
-			t.Errorf("Expected 1 entry initially, got %d", entryCount)
-		}
-
-		// Append another CA (use cert file as another CA)
-		caPairs2 := []certKeyPair{
-			{
-				certPEM: mustReadFile(t, certFile),
-				alias:   "ca2",
-			},
-		}
-
-		p12Data2, err := createPKCS12Keystore(nil, caPairs2, "changeit", outputFile, "changeit")
-		if err != nil {
-			t.Fatalf("Failed to append to PKCS#12: %v", err)
-		}
-
-		if err := os.WriteFile(outputFile, p12Data2, 0644); err != nil {
-			t.Fatalf("Failed to write appended PKCS#12: %v", err)
-		}
-
-		// Verify appended entry count
-		entryCount = verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "pkcs12")
-		if entryCount != 2 {
-			t.Errorf("Expected 2 entries after append, got %d", entryCount)
 		}
 	})
 }

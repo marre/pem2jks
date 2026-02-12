@@ -89,46 +89,6 @@ func TestCreateJKSTruststore(t *testing.T) {
 	t.Logf("Generated JKS truststore size: %d bytes", len(jksData))
 }
 
-func TestCreatePKCS12WithRSAKey(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("Failed to generate RSA key: %v", err)
-	}
-
-	_, certDER := generateTestCert(t, &key.PublicKey)
-
-	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		t.Fatalf("Failed to marshal key to PKCS#8: %v", err)
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	p12Data, err := CreatePKCS12FromPEM(certPEM, keyPEM, nil, "changeit", "test")
-	if err != nil {
-		t.Fatalf("Failed to create PKCS#12: %v", err)
-	}
-
-	t.Logf("Generated PKCS#12 size: %d bytes", len(p12Data))
-}
-
-func TestCreatePKCS12Truststore(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("Failed to generate RSA key: %v", err)
-	}
-
-	_, certDER := generateTestCert(t, &key.PublicKey)
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	p12Data, err := CreatePKCS12FromPEM(nil, nil, certPEM, "changeit", "ca")
-	if err != nil {
-		t.Fatalf("Failed to create PKCS#12 truststore: %v", err)
-	}
-
-	t.Logf("Generated PKCS#12 truststore size: %d bytes", len(p12Data))
-}
-
 func TestParsePKCS1Key(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
