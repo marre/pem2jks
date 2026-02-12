@@ -450,12 +450,7 @@ func verifyKeystoreWithKeytool(t *testing.T, ctx context.Context, container test
 	}
 
 	// Run keytool to list keystore entries
-	var cmd []string
-	if storeType == "pkcs12" {
-		cmd = []string{"keytool", "-list", "-keystore", containerPath, "-storepass", password, "-storetype", "PKCS12"}
-	} else {
-		cmd = []string{"keytool", "-list", "-keystore", containerPath, "-storepass", password}
-	}
+	cmd := []string{"keytool", "-list", "-keystore", containerPath, "-storepass", password}
 
 	exitCode, reader, err := container.Exec(ctx, cmd)
 	if err != nil {
