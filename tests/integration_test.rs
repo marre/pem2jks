@@ -9,7 +9,7 @@
 use pem2jks::keystore::{self, JKS};
 use testcontainers::core::{ExecCommand, WaitFor};
 use testcontainers::runners::SyncRunner;
-use testcontainers::{Container, GenericImage, ImageExt};
+use testcontainers::{GenericImage, ImageExt};
 
 fn generate_ca_cert() -> (Vec<u8>, Vec<u8>) {
     let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
@@ -53,84 +53,18 @@ fn generate_server_cert(ca_cert_pem: &[u8], ca_key_pem: &[u8], cn: &str) -> (Vec
     (cert_pem, key_pem)
 }
 
-fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::new();
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 {
-            result.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-        if chunk.len() > 2 {
-            result.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            result.push('=');
-        }
-    }
-    result
-}
-
 /// Helper to verify a keystore using Java keytool via testcontainers.
+/// Creates a fresh container with the keystore data pre-loaded via with_copy_to.
 /// Returns the entry count reported by keytool.
-fn verify_keystore_with_keytool(
-    container: &Container<GenericImage>,
-    name: &str,
-    keystore_data: &[u8],
-    password: &str,
-) -> usize {
+fn verify_keystore_with_keytool(name: &str, keystore_data: &[u8], password: &str) -> usize {
     let container_path = format!("/tmp/{}", name);
 
-    // Transfer keystore data into container via base64 + shell decode
-    let b64_data = base64_encode(keystore_data);
-    // Split into chunks to avoid command line length limits
-    let chunk_size = 4096;
-    let chunks: Vec<&str> = b64_data
-        .as_bytes()
-        .chunks(chunk_size)
-        .map(|c| std::str::from_utf8(c).unwrap())
-        .collect();
-
-    // Write first chunk (truncate)
-    let first_cmd = format!("printf '%s' '{}' > /tmp/b64.txt", chunks[0]);
-    let result = container
-        .exec(ExecCommand::new(vec![
-            "sh".to_string(),
-            "-c".to_string(),
-            first_cmd,
-        ]))
-        .expect("exec failed");
-    result.exit_code().expect("exit code");
-
-    // Append remaining chunks
-    for chunk in &chunks[1..] {
-        let append_cmd = format!("printf '%s' '{}' >> /tmp/b64.txt", chunk);
-        let result = container
-            .exec(ExecCommand::new(vec![
-                "sh".to_string(),
-                "-c".to_string(),
-                append_cmd,
-            ]))
-            .expect("exec failed");
-        result.exit_code().expect("exit code");
-    }
-
-    // Decode base64 to binary
-    let decode_cmd = format!("base64 -d /tmp/b64.txt > {}", container_path);
-    let result = container
-        .exec(ExecCommand::new(vec![
-            "sh".to_string(),
-            "-c".to_string(),
-            decode_cmd,
-        ]))
-        .expect("exec failed");
-    result.exit_code().expect("exit code");
+    let container = GenericImage::new("eclipse-temurin", "21-jdk-alpine")
+        .with_wait_for(WaitFor::seconds(2))
+        .with_copy_to(container_path.clone(), keystore_data.to_vec())
+        .with_cmd(vec!["sleep", "infinity"])
+        .start()
+        .expect("Failed to start Java container");
 
     // Run keytool to list entries
     let keytool_cmd = format!(
@@ -174,23 +108,12 @@ fn verify_keystore_with_keytool(
     entry_count
 }
 
-/// Start the Java container used for keytool verification.
-fn start_java_container() -> Container<GenericImage> {
-    GenericImage::new("eclipse-temurin", "21-jdk-alpine")
-        .with_wait_for(WaitFor::seconds(2))
-        .with_cmd(vec!["sleep", "infinity"])
-        .start()
-        .expect("Failed to start Java container")
-}
-
 // All integration tests are ignored by default (require Docker)
 // Run with: cargo test --test integration_test -- --ignored
 
 #[test]
 #[ignore]
 fn integration_jks_with_private_key() {
-    let container = start_java_container();
-
     let (ca_cert_pem, ca_key_pem) = generate_ca_cert();
     let (tls_cert_pem, tls_key_pem) = generate_server_cert(&ca_cert_pem, &ca_key_pem, "localhost");
 
@@ -202,15 +125,13 @@ fn integration_jks_with_private_key() {
         .expect("add private key");
 
     let data = jks.marshal("changeit").expect("marshal");
-    let count = verify_keystore_with_keytool(&container, "test-pk.jks", &data, "changeit");
+    let count = verify_keystore_with_keytool("test-pk.jks", &data, "changeit");
     assert!(count >= 1, "Expected at least 1 entry, got {}", count);
 }
 
 #[test]
 #[ignore]
 fn integration_jks_with_ca() {
-    let container = start_java_container();
-
     let (ca_cert_pem, ca_key_pem) = generate_ca_cert();
     let (tls_cert_pem, tls_key_pem) = generate_server_cert(&ca_cert_pem, &ca_key_pem, "localhost");
 
@@ -231,15 +152,13 @@ fn integration_jks_with_ca() {
     }
 
     let data = jks.marshal("changeit").expect("marshal");
-    let count = verify_keystore_with_keytool(&container, "test-ca.jks", &data, "changeit");
+    let count = verify_keystore_with_keytool("test-ca.jks", &data, "changeit");
     assert_eq!(count, 2, "Expected 2 entries (1 key + 1 CA)");
 }
 
 #[test]
 #[ignore]
 fn integration_jks_truststore() {
-    let container = start_java_container();
-
     let (ca_cert_pem, _) = generate_ca_cert();
     let ca_certs = keystore::parse_pem_certificates(&ca_cert_pem).expect("parse CA");
 
@@ -254,15 +173,13 @@ fn integration_jks_truststore() {
     }
 
     let data = jks.marshal("changeit").expect("marshal");
-    let count = verify_keystore_with_keytool(&container, "truststore.jks", &data, "changeit");
+    let count = verify_keystore_with_keytool("truststore.jks", &data, "changeit");
     assert_eq!(count, 1, "Expected 1 CA entry");
 }
 
 #[test]
 #[ignore]
 fn integration_jks_multiple_keys() {
-    let container = start_java_container();
-
     let (ca_cert_pem, ca_key_pem) = generate_ca_cert();
     let (cert1_pem, key1_pem) = generate_server_cert(&ca_cert_pem, &ca_key_pem, "app1.example.com");
     let (cert2_pem, key2_pem) = generate_server_cert(&ca_cert_pem, &ca_key_pem, "app2.example.com");
@@ -279,15 +196,13 @@ fn integration_jks_multiple_keys() {
         .expect("add key2");
 
     let data = jks.marshal("changeit").expect("marshal");
-    let count = verify_keystore_with_keytool(&container, "multi-keys.jks", &data, "changeit");
+    let count = verify_keystore_with_keytool("multi-keys.jks", &data, "changeit");
     assert_eq!(count, 2, "Expected 2 entries");
 }
 
 #[test]
 #[ignore]
 fn integration_jks_multiple_cas() {
-    let container = start_java_container();
-
     let (ca1_pem, _) = generate_ca_cert();
     let (ca2_pem, _) = generate_ca_cert();
 
@@ -299,15 +214,13 @@ fn integration_jks_multiple_cas() {
     jks.add_trusted_cert("ca2", &ca2_certs[0]).expect("add CA2");
 
     let data = jks.marshal("changeit").expect("marshal");
-    let count = verify_keystore_with_keytool(&container, "multi-ca.jks", &data, "changeit");
+    let count = verify_keystore_with_keytool("multi-ca.jks", &data, "changeit");
     assert_eq!(count, 2, "Expected 2 CA entries");
 }
 
 #[test]
 #[ignore]
 fn integration_jks_append_private_key() {
-    let container = start_java_container();
-
     let (ca_cert_pem, ca_key_pem) = generate_ca_cert();
     let (cert_pem, key_pem) = generate_server_cert(&ca_cert_pem, &ca_key_pem, "localhost");
 
@@ -320,7 +233,7 @@ fn integration_jks_append_private_key() {
         .expect("add initial key");
     let data1 = jks1.marshal("changeit").expect("marshal");
 
-    let count1 = verify_keystore_with_keytool(&container, "append-initial.jks", &data1, "changeit");
+    let count1 = verify_keystore_with_keytool("append-initial.jks", &data1, "changeit");
     assert_eq!(count1, 1, "Expected 1 entry initially");
 
     // Append another key
@@ -332,15 +245,13 @@ fn integration_jks_append_private_key() {
         .expect("add appended key");
     let data2 = jks2.marshal("changeit").expect("marshal");
 
-    let count2 = verify_keystore_with_keytool(&container, "append-final.jks", &data2, "changeit");
+    let count2 = verify_keystore_with_keytool("append-final.jks", &data2, "changeit");
     assert_eq!(count2, 2, "Expected 2 entries after append");
 }
 
 #[test]
 #[ignore]
 fn integration_jks_append_ca() {
-    let container = start_java_container();
-
     let (ca_cert_pem, ca_key_pem) = generate_ca_cert();
     let (cert_pem, key_pem) = generate_server_cert(&ca_cert_pem, &ca_key_pem, "localhost");
 
@@ -359,6 +270,6 @@ fn integration_jks_append_ca() {
     jks2.add_trusted_cert("ca", &ca_certs[0]).expect("add CA");
     let data2 = jks2.marshal("changeit").expect("marshal");
 
-    let count = verify_keystore_with_keytool(&container, "append-ca.jks", &data2, "changeit");
+    let count = verify_keystore_with_keytool("append-ca.jks", &data2, "changeit");
     assert_eq!(count, 2, "Expected 2 entries (1 key + 1 CA)");
 }
