@@ -12,9 +12,8 @@ Thank you for your interest in contributing to pem2jks!
 
 ### Prerequisites
 
-- Go 1.25 or later
-- Docker (for running golangci-lint and building images)
-- Java and keytool (optional, for integration tests)
+- Rust (stable toolchain)
+- Docker (for integration tests and building images)
 
 ### Building
 
@@ -31,7 +30,7 @@ make test
 # Linting
 make lint
 
-# Integration tests (requires Java)
+# Integration tests (requires Docker)
 make test-integration
 ```
 
@@ -54,9 +53,9 @@ make test-integration
 
 ## Code Style
 
-- Follow standard Go conventions
-- Run `go fmt` before committing
-- Address golangci-lint warnings
+- Follow standard Rust conventions
+- Run `cargo fmt` before committing
+- Address clippy warnings
 
 ## Questions?
 

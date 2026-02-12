@@ -14,8 +14,7 @@ const TAG_TRUSTED_CERT: u32 = 2;
 const SIGNATURE_WHITENER: &[u8] = b"Mighty Aphrodite";
 
 /// Sun JKS proprietary algorithm OID: 1.3.6.1.4.1.42.2.17.1.1
-const SUN_JKS_ALGO_OID: ObjectIdentifier =
-    ObjectIdentifier::new_unwrap("1.3.6.1.4.1.42.2.17.1.1");
+const SUN_JKS_ALGO_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.42.2.17.1.1");
 
 // ASN.1 structures for EncryptedPrivateKeyInfo
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
@@ -105,8 +104,8 @@ pub enum Entry {
 /// A private key entry in a JKS keystore.
 pub struct PrivateKeyEntry {
     pub alias: String,
-    pub timestamp: i64, // milliseconds since epoch
-    pub priv_key: Vec<u8>, // PKCS#8 DER
+    pub timestamp: i64,           // milliseconds since epoch
+    pub priv_key: Vec<u8>,        // PKCS#8 DER
     pub cert_chain: Vec<Vec<u8>>, // DER-encoded certs
 }
 
@@ -178,9 +177,8 @@ impl JKS {
         }
         // Validate each cert in the chain
         for (i, cert_der) in cert_chain.iter().enumerate() {
-            validate_certificate(cert_der).map_err(|e| {
-                JksError::InvalidCertificate(format!("cert chain[{}]: {}", i, e))
-            })?;
+            validate_certificate(cert_der)
+                .map_err(|e| JksError::InvalidCertificate(format!("cert chain[{}]: {}", i, e)))?;
         }
 
         self.entries.push(Entry::PrivateKey(PrivateKeyEntry {
@@ -285,7 +283,7 @@ impl JKS {
             return Err(JksError::IntegrityCheckFailed);
         }
 
-        let mut cursor = &keystore_data[..];
+        let mut cursor = keystore_data as &[u8];
 
         let magic = read_u32(&mut cursor)?;
         if magic != JKS_MAGIC {
@@ -472,9 +470,7 @@ fn encrypt_private_key(plaintext: &[u8], password: &str) -> Result<Vec<u8>> {
 
 fn decrypt_private_key(data: &[u8], password: &str) -> Result<Vec<u8>> {
     if data.len() < 40 {
-        return Err(JksError::Other(
-            "encrypted key data too short".to_string(),
-        ));
+        return Err(JksError::Other("encrypted key data too short".to_string()));
     }
 
     let password_bytes = password_to_utf16be(password);
@@ -511,11 +507,11 @@ fn jks_crypt(password_bytes: &[u8], iv: &[u8], input: &[u8]) -> Vec<u8> {
         let hash = hasher.finalize();
         let hash_bytes = &hash[..];
 
-        for i in 0..20 {
+        for &hash_byte in hash_bytes.iter().take(20) {
             if pos >= input.len() {
                 break;
             }
-            output[pos] = input[pos] ^ hash_bytes[i];
+            output[pos] = input[pos] ^ hash_byte;
             pos += 1;
         }
 
@@ -544,13 +540,15 @@ fn decapsulate_private_key(data: &[u8]) -> Result<Vec<u8>> {
     let reader = SliceReader::new(data).map_err(|e| JksError::Asn1(e.to_string()))?;
 
     // Read outer SEQUENCE
-    let header = reader.peek_header().map_err(|e| JksError::Asn1(e.to_string()))?;
+    let header = reader
+        .peek_header()
+        .map_err(|e| JksError::Asn1(e.to_string()))?;
     if header.tag != der::Tag::Sequence {
         return Err(JksError::Asn1("expected SEQUENCE".to_string()));
     }
 
-    let epki = EncryptedPrivateKeyInfoAsn1::from_der(data)
-        .map_err(|e| JksError::Asn1(e.to_string()))?;
+    let epki =
+        EncryptedPrivateKeyInfoAsn1::from_der(data).map_err(|e| JksError::Asn1(e.to_string()))?;
 
     if epki.algorithm.algorithm != SUN_JKS_ALGO_OID {
         return Err(JksError::InvalidAlgorithm);
@@ -640,10 +638,9 @@ mod tests {
         let rsa_key = rsa::RsaPrivateKey::new(&mut rng, 2048).unwrap();
         let pkcs8_der = rsa_key.to_pkcs8_der().unwrap();
         let pkcs8_bytes = pkcs8_der.as_bytes();
-        let private_key_der =
-            rustls_pki_types::PrivateKeyDer::Pkcs8(rustls_pki_types::PrivatePkcs8KeyDer::from(
-                pkcs8_bytes.to_vec(),
-            ));
+        let private_key_der = rustls_pki_types::PrivateKeyDer::Pkcs8(
+            rustls_pki_types::PrivatePkcs8KeyDer::from(pkcs8_bytes.to_vec()),
+        );
         let key_pair =
             KeyPair::from_der_and_sign_algo(&private_key_der, &rcgen::PKCS_RSA_SHA256).unwrap();
         let params = CertificateParams::new(vec!["test.example.com".to_string()]).unwrap();
@@ -975,11 +972,8 @@ mod tests {
 
         // Generate leaf cert
         let leaf_kp = KeyPair::generate().unwrap();
-        let leaf_params =
-            CertificateParams::new(vec!["leaf.example.com".to_string()]).unwrap();
-        let leaf_cert = leaf_params
-            .signed_by(&leaf_kp, &inter_issuer)
-            .unwrap();
+        let leaf_params = CertificateParams::new(vec!["leaf.example.com".to_string()]).unwrap();
+        let leaf_cert = leaf_params.signed_by(&leaf_kp, &inter_issuer).unwrap();
 
         let chain = vec![
             leaf_cert.der().to_vec(),

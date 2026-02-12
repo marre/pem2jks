@@ -1,5 +1,5 @@
-# Binaries
-bin/
+# Rust build output
+/target/
 
 # Test artifacts
 testdata/*.crt
@@ -21,8 +21,9 @@ testdata/*.class
 Thumbs.db
 
 # Coverage
-coverage.out
-coverage.html
+*.profraw
+lcov.info
+coverage/
 
 # The binary (root directory only)
 /pem2jks

@@ -4,7 +4,10 @@ use std::fs;
 use std::process;
 
 #[derive(Parser)]
-#[command(name = "pem2jks", about = "Convert PEM certificates and keys to JKS keystore")]
+#[command(
+    name = "pem2jks",
+    about = "Convert PEM certificates and keys to JKS keystore"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -68,7 +71,10 @@ fn resolve_password(cli: &Cli) -> Result<String, String> {
     if let Ok(pw) = std::env::var("KEYSTORE_PASSWORD") {
         return Ok(pw);
     }
-    Err("no password provided: use --password, --password-file, or KEYSTORE_PASSWORD env".to_string())
+    Err(
+        "no password provided: use --password, --password-file, or KEYSTORE_PASSWORD env"
+            .to_string(),
+    )
 }
 
 struct CertSpec {
@@ -158,7 +164,8 @@ fn create_jks_keystore(
     input_jks: Option<(&[u8], &str)>,
 ) -> Result<Vec<u8>, String> {
     let mut jks = if let Some((data, input_pw)) = input_jks {
-        JKS::unmarshal(data, input_pw).map_err(|e| format!("failed to read input keystore: {}", e))?
+        JKS::unmarshal(data, input_pw)
+            .map_err(|e| format!("failed to read input keystore: {}", e))?
     } else {
         JKS::new()
     };
@@ -169,10 +176,7 @@ fn create_jks_keystore(
         let cert_chain = keystore::parse_pem_certificates(&cert_pem)
             .map_err(|e| format!("failed to parse cert '{}': {}", spec.cert_file, e))?;
 
-        let alias = spec
-            .alias
-            .clone()
-            .unwrap_or_else(|| default_cert_alias(i));
+        let alias = spec.alias.clone().unwrap_or_else(|| default_cert_alias(i));
 
         if let Some(ref key_file) = spec.key_file {
             let key_pem = fs::read(key_file)
@@ -246,26 +250,19 @@ fn main() {
     let cert_specs: Vec<CertSpec> = cli.cert.iter().map(|s| parse_cert_spec(s)).collect();
     let ca_specs: Vec<CaSpec> = cli.ca.iter().map(|s| parse_ca_spec(s)).collect();
 
-    let input_data = if let Some(ref input_path) = cli.input {
-        Some(
-            fs::read(input_path)
-                .unwrap_or_else(|e| {
-                    eprintln!("error: failed to read input keystore '{}': {}", input_path, e);
-                    process::exit(1);
-                }),
-        )
-    } else {
-        None
-    };
+    let input_data = cli.input.as_ref().map(|input_path| {
+        fs::read(input_path).unwrap_or_else(|e| {
+            eprintln!(
+                "error: failed to read input keystore '{}': {}",
+                input_path, e
+            );
+            process::exit(1);
+        })
+    });
 
-    let input_pw = cli
-        .input_password
-        .as_deref()
-        .unwrap_or(&password);
+    let input_pw = cli.input_password.as_deref().unwrap_or(&password);
 
-    let input_jks = input_data
-        .as_ref()
-        .map(|data| (data.as_slice(), input_pw));
+    let input_jks = input_data.as_ref().map(|data| (data.as_slice(), input_pw));
 
     match create_jks_keystore(&cert_specs, &ca_specs, &password, input_jks) {
         Ok(data) => {
@@ -346,4 +343,3 @@ mod tests {
         assert_eq!(default_ca_alias(2), "ca-2");
     }
 }
-
