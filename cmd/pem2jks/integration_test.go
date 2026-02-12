@@ -32,7 +32,7 @@ func TestIntegration(t *testing.T) {
 	req := testcontainers.ContainerRequest{
 		Image:      "eclipse-temurin:21-jre-alpine",
 		Cmd:        []string{"sleep", "infinity"},
-		WaitingFor: wait.ForLog("").WithStartupTimeout(30 * time.Second),
+		WaitingFor: wait.ForRunning().WithStartupTimeout(30 * time.Second),
 	}
 
 	javaContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
