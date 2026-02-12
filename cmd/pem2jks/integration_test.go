@@ -30,9 +30,9 @@ func TestIntegration(t *testing.T) {
 
 	// Start a Java container with keytool
 	req := testcontainers.ContainerRequest{
-		Image:      "eclipse-temurin:21-jre-alpine",
+		Image:      "eclipse-temurin:21-jdk-alpine",
 		Cmd:        []string{"sleep", "infinity"},
-		WaitingFor: wait.ForRunning().WithStartupTimeout(30 * time.Second),
+		WaitingFor: wait.ForExec([]string{"keytool", "-help"}).WithStartupTimeout(30 * time.Second),
 	}
 
 	javaContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -237,7 +237,7 @@ func testPKCS12Format(t *testing.T, ctx context.Context, container testcontainer
 			},
 		}
 
-		p12Data, err := createPKCS12Keystore(caPairs, nil, "changeit", "", "changeit")
+		p12Data, err := createPKCS12Keystore(nil, caPairs, "changeit", "", "changeit")
 		if err != nil {
 			t.Fatalf("Failed to create PKCS#12 truststore: %v", err)
 		}
@@ -426,7 +426,7 @@ func testPKCS12Append(t *testing.T, ctx context.Context, container testcontainer
 			},
 		}
 
-		p12Data1, err := createPKCS12Keystore(caPairs1, nil, "changeit", "", "changeit")
+		p12Data1, err := createPKCS12Keystore(nil, caPairs1, "changeit", "", "changeit")
 		if err != nil {
 			t.Fatalf("Failed to create initial PKCS#12: %v", err)
 		}
@@ -449,7 +449,7 @@ func testPKCS12Append(t *testing.T, ctx context.Context, container testcontainer
 			},
 		}
 
-		p12Data2, err := createPKCS12Keystore(caPairs2, nil, "changeit", outputFile, "changeit")
+		p12Data2, err := createPKCS12Keystore(nil, caPairs2, "changeit", outputFile, "changeit")
 		if err != nil {
 			t.Fatalf("Failed to append to PKCS#12: %v", err)
 		}
