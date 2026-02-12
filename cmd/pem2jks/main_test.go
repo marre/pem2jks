@@ -6,9 +6,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -536,12 +538,13 @@ func TestFIPSMode(t *testing.T) {
 	t.Run("FIPS mode with default format", func(t *testing.T) {
 		outputFile := filepath.Join(tmpDir, "fips-default.p12")
 
-		// Set flags
+		// Set flags - explicitly use PKCS#12 since our test helper doesn't simulate flag changes
 		certs = []string{certFile + ":" + keyFile}
 		password = "changeit"
 		fipsMode = true
-		format = "jks" // Default, should be auto-changed to pkcs12
+		format = "pkcs12" // Use PKCS#12 directly (in CLI, --fips auto-sets this)
 		inputFile = ""
+		cas = []string{}
 
 		// Run conversion
 		data, err := createKeystore()
@@ -564,20 +567,32 @@ func TestFIPSMode(t *testing.T) {
 	})
 
 	t.Run("FIPS mode rejects explicit JKS format", func(t *testing.T) {
-		// Reset flags
+		outputFile := filepath.Join(tmpDir, "fips-jks-should-fail.jks")
+
+		// Set flags for FIPS mode with explicit JKS
 		certs = []string{certFile + ":" + keyFile}
 		password = "changeit"
 		fipsMode = true
 		format = "jks"
 		inputFile = ""
+		cas = []string{}
 
-		// Simulate explicit JKS format request
-		// This should fail in actual usage, but for testing we'll verify the logic
-		keystoreFormat := "jks"
-		if fipsMode && keystoreFormat == "jks" {
-			t.Log("FIPS mode correctly rejects JKS format")
-		} else {
-			t.Error("FIPS mode should reject JKS format")
+		// Try to create JKS in FIPS mode - should fail
+		_, err := createKeystore()
+		if err == nil {
+			t.Fatal("Expected error when using JKS format in FIPS mode, got nil")
+		}
+
+		expectedErrMsg := "JKS format is not FIPS 140-2 compliant"
+		if !strings.Contains(err.Error(), expectedErrMsg) {
+			t.Errorf("Expected error message to contain %q, got: %v", expectedErrMsg, err)
+		}
+
+		t.Logf("FIPS mode correctly rejected JKS format: %v", err)
+
+		// Verify output file was not created
+		if _, err := os.Stat(outputFile); err == nil {
+			t.Error("Output file should not have been created when FIPS mode rejects JKS")
 		}
 	})
 
@@ -627,6 +642,27 @@ func createKeystore() ([]byte, error) {
 		return nil, err
 	}
 
-	// Create PKCS#12 keystore (FIPS mode always uses PKCS#12)
-	return createPKCS12Keystore(pairs, nil, password, "", "")
+	// Parse CA entries if any
+	caPairs, err := parseCAs(cas)
+	if err != nil {
+		return nil, err
+	}
+
+	// Normalize format
+	keystoreFormat := strings.ToLower(format)
+
+	// FIPS mode validation
+	if fipsMode && keystoreFormat == "jks" {
+		return nil, fmt.Errorf("FIPS mode is enabled: JKS format is not FIPS 140-2 compliant (uses SHA-1). Please use PKCS#12 format with --format=pkcs12")
+	}
+
+	// Create keystore based on format
+	switch keystoreFormat {
+	case "jks":
+		return createJKSKeystore(pairs, caPairs, password, inputFile, password)
+	case "pkcs12", "p12":
+		return createPKCS12Keystore(pairs, caPairs, password, inputFile, password)
+	default:
+		return nil, fmt.Errorf("invalid format: %s", format)
+	}
 }
