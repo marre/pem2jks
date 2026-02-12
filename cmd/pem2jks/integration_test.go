@@ -107,7 +107,7 @@ func testJKSFormat(t *testing.T, ctx context.Context, container testcontainers.C
 		}
 
 		// Verify with keytool
-		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 	})
 
 	t.Run("Create_JKS_With_CA", func(t *testing.T) {
@@ -137,7 +137,7 @@ func testJKSFormat(t *testing.T, ctx context.Context, container testcontainers.C
 		}
 
 		// Verify with keytool
-		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 	})
 
 	t.Run("Create_JKS_Truststore", func(t *testing.T) {
@@ -160,7 +160,7 @@ func testJKSFormat(t *testing.T, ctx context.Context, container testcontainers.C
 		}
 
 		// Verify with keytool
-		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 	})
 }
 
@@ -191,7 +191,7 @@ func testMultiplePEMFiles(t *testing.T, ctx context.Context, container testconta
 		}
 
 		// Verify with keytool and check entry count
-		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 		if entryCount != 2 {
 			t.Errorf("Expected 2 entries, got %d", entryCount)
 		}
@@ -221,7 +221,7 @@ func testMultiplePEMFiles(t *testing.T, ctx context.Context, container testconta
 		}
 
 		// Verify with keytool and check entry count
-		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 		if entryCount != 2 {
 			t.Errorf("Expected 2 CA entries, got %d", entryCount)
 		}
@@ -251,7 +251,7 @@ func testJKSAppend(t *testing.T, ctx context.Context, container testcontainers.C
 		}
 
 		// Verify initial entry count
-		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 		if entryCount != 1 {
 			t.Errorf("Expected 1 entry initially, got %d", entryCount)
 		}
@@ -275,7 +275,7 @@ func testJKSAppend(t *testing.T, ctx context.Context, container testcontainers.C
 		}
 
 		// Verify appended entry count
-		entryCount = verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		entryCount = verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 		if entryCount != 2 {
 			t.Errorf("Expected 2 entries after append, got %d", entryCount)
 		}
@@ -320,7 +320,7 @@ func testJKSAppend(t *testing.T, ctx context.Context, container testcontainers.C
 		}
 
 		// Verify entry count
-		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit", "jks")
+		entryCount := verifyKeystoreWithKeytool(t, ctx, container, outputFile, "changeit")
 		if entryCount != 2 {
 			t.Errorf("Expected 2 entries after CA append, got %d", entryCount)
 		}
@@ -440,7 +440,7 @@ func mustReadFile(t *testing.T, path string) []byte {
 	return data
 }
 
-func verifyKeystoreWithKeytool(t *testing.T, ctx context.Context, container testcontainers.Container, keystorePath, password, storeType string) int {
+func verifyKeystoreWithKeytool(t *testing.T, ctx context.Context, container testcontainers.Container, keystorePath, password string) int {
 	t.Helper()
 
 	// Copy keystore to container
