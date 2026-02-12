@@ -37,10 +37,12 @@ var (
 	inputPassword string
 	format        string
 	inputFile     string
+	fipsMode      bool // FIPS 140-2 compliant mode
 )
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
@@ -53,12 +55,20 @@ into Java KeyStore (JKS) or PKCS#12 format.
 
 It is designed for use in Kubernetes environments where certificates are
 typically provided in PEM format (e.g., from cert-manager) but Java
-applications require JKS or PKCS#12 keystores.`,
+applications require JKS or PKCS#12 keystores.
+
+FIPS 140-2 Compliance:
+  For FIPS-compliant keystores, use PKCS#12 format (--format=pkcs12 or --fips).
+  PKCS#12 output uses PBES2 with PBKDF2-HMAC-SHA-256 and AES-256-CBC, which are
+  FIPS-approved algorithms. JKS format uses SHA-1 and is not FIPS-compliant.`,
 	Example: `  # Create JKS keystore with private key and certificate
   pem2jks -c tls.crt:tls.key -p changeit -o keystore.jks
 
   # Create PKCS#12 keystore
   pem2jks -c tls.crt:tls.key -p changeit -f pkcs12
+
+  # Create FIPS-compliant keystore
+  pem2jks -c tls.crt:tls.key -p changeit --fips
 
   # Create keystore with multiple cert/key pairs and custom aliases
   pem2jks -c app1.crt:app1.key:app1 -c app2.crt:app2.key:app2 -p changeit
@@ -104,9 +114,22 @@ func init() {
 	rootCmd.Flags().StringVar(&inputPassword, "input-password", "", "password for input keystore (defaults to --password if not specified)")
 	rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
 	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
+	rootCmd.Flags().BoolVar(&fipsMode, "fips", false, "enable FIPS 140-2 compliant mode (only PKCS#12 format allowed, or use FIPS_MODE env)")
 }
 
 func runConvert(cmd *cobra.Command, args []string) error {
+	// Check FIPS mode from environment variable if flag not set
+	if !fipsMode {
+		if os.Getenv("FIPS_MODE") == "true" || os.Getenv("FIPS_MODE") == "1" {
+			fipsMode = true
+		}
+	}
+
+	// If FIPS mode is enabled and format is not explicitly set, use pkcs12
+	if fipsMode && !cmd.Flags().Changed("format") {
+		format = "pkcs12"
+	}
+
 	// Normalize and validate format
 	keystoreFormat := strings.ToLower(format)
 	switch keystoreFormat {
@@ -114,6 +137,19 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		// valid
 	default:
 		return fmt.Errorf("invalid format %q (use jks, pkcs12, or p12)", format)
+	}
+
+	// FIPS mode validation
+	if fipsMode {
+		if keystoreFormat == "jks" {
+			return fmt.Errorf("FIPS mode is enabled: JKS format is not FIPS 140-2 compliant (uses SHA-1). Please use PKCS#12 format with --format=pkcs12")
+		}
+		fmt.Fprintln(os.Stderr, "INFO: FIPS 140-2 mode enabled - using PKCS#12 with PBES2 and SHA-256")
+	} else {
+		// Warn when using JKS in non-FIPS mode
+		if keystoreFormat == "jks" {
+			fmt.Fprintln(os.Stderr, "WARNING: JKS format uses SHA-1 and is not FIPS 140-2 compliant. For FIPS compliance, use --format=pkcs12 or enable --fips mode")
+		}
 	}
 
 	// Set default output filename based on format
