@@ -62,4 +62,4 @@ jobs:
           go-version: "1.25"
 
       - name: Run integration tests
-        run: go test -v -run TestIntegration ./cmd/pem2jks -timeout 10m
+        run: make test-integration
