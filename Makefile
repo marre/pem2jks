@@ -38,17 +38,11 @@ static:
 
 # Run unit tests
 test:
-	$(GOTEST) -v ./...
+	$(GOTEST) -v -short ./...
 
-# Run integration tests
-test-integration: build generate-certs
-	@chmod +x scripts/integration-test.sh
-	./scripts/integration-test.sh
-
-# Generate test certificates
-generate-certs:
-	@chmod +x scripts/generate-certs.sh
-	./scripts/generate-certs.sh
+# Run integration tests (requires Docker)
+test-integration:
+	$(GOTEST) -v -run TestIntegration ./cmd/pem2jks -timeout 10m
 
 # Install binary to GOPATH/bin
 install:
@@ -57,7 +51,6 @@ install:
 # Clean build artifacts
 clean:
 	rm -rf bin/
-	rm -f testdata/*.pem testdata/*.crt testdata/*.key testdata/*.jks testdata/*.p12 testdata/*.srl testdata/*.csr
 
 # Build Docker image for local testing
 docker: static
@@ -99,8 +92,7 @@ help:
 	@echo "  build            - Build the binary to bin/"
 	@echo "  static           - Build static binary for containers"
 	@echo "  test             - Run unit tests"
-	@echo "  test-integration - Run integration tests"
-	@echo "  generate-certs   - Generate test certificates"
+	@echo "  test-integration - Run integration tests (requires Docker)"
 	@echo "  install          - Install to GOPATH/bin"
 	@echo "  clean            - Remove build artifacts"
 	@echo "  docker           - Build Docker image"
