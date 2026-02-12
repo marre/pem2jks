@@ -15,38 +15,49 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          go-version: "1.25"
+          components: rustfmt, clippy
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          version: latest
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
 
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          go-version: "1.25"
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./coverage.out
-          fail_ci_if_error: false
+        run: cargo test
 
   integration:
     name: Integration Tests
@@ -54,12 +65,19 @@ jobs:
     needs: [lint, test]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          go-version: "1.25"
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run integration tests
         run: make test-integration

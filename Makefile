@@ -1,83 +1,64 @@
-.PHONY: build test clean docker install test-integration generate-certs fmt vet lint all
+.PHONY: build test clean docker install test-integration fmt clippy lint all
 
 # Binary name
 BINARY_NAME := pem2jks
-BINARY_PATH := bin/$(BINARY_NAME)
+BINARY_PATH := target/release/$(BINARY_NAME)
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Build flags
-LDFLAGS := -s -w \
-	-X main.Version=$(VERSION) \
-	-X main.GitCommit=$(COMMIT) \
-	-X main.BuildDate=$(DATE)
-
-# Go parameters
-GOCMD   := go
-GOBUILD := $(GOCMD) build
-GOTEST  := $(GOCMD) test
-GOFMT   := $(GOCMD) fmt
-GOVET   := $(GOCMD) vet
-GOMOD   := $(GOCMD) mod
-
 # Default target
 all: lint test build
 
 # Build the binary
 build:
-	@mkdir -p bin
-	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/pem2jks
+	VERSION=$(VERSION) GIT_COMMIT=$(COMMIT) BUILD_DATE=$(DATE) cargo build --release
 
 # Build static binary (for containers)
 static:
-	@mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/pem2jks
+	VERSION=$(VERSION) GIT_COMMIT=$(COMMIT) BUILD_DATE=$(DATE) cargo build --release --target x86_64-unknown-linux-musl
 
 # Run unit tests
 test:
-	$(GOTEST) -v -short ./...
+	cargo test
 
 # Run integration tests (requires Docker)
 test-integration:
-	$(GOTEST) -v -run TestIntegration ./cmd/pem2jks -timeout 10m
+	cargo test --test integration_test -- --ignored --test-threads=1
 
-# Install binary to GOPATH/bin
+# Install binary
 install:
-	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(GOPATH)/bin/$(BINARY_NAME) ./cmd/pem2jks
+	VERSION=$(VERSION) GIT_COMMIT=$(COMMIT) BUILD_DATE=$(DATE) cargo install --path .
 
 # Clean build artifacts
 clean:
-	rm -rf bin/
+	cargo clean
 
 # Build Docker image for local testing
 docker: static
 	@mkdir -p linux/amd64
-	cp bin/$(BINARY_NAME) linux/amd64/$(BINARY_NAME)
+	cp target/x86_64-unknown-linux-musl/release/$(BINARY_NAME) linux/amd64/$(BINARY_NAME)
 	docker buildx build --platform linux/amd64 --load -t $(BINARY_NAME):$(VERSION) -t $(BINARY_NAME):latest .
 	rm -rf linux/
 
 # Format code
 fmt:
-	$(GOFMT) ./...
+	cargo fmt
 
-# Run vet
-vet:
-	$(GOVET) ./...
+# Run clippy
+clippy:
+	cargo clippy -- -D warnings
 
-# Run golangci-lint in Docker
-golangci-lint:
-	docker run --rm -v $(PWD):/app -w /app golangci/golangci-lint:v2.8.0-alpine golangci-lint run ./...
-
-# Lint (fmt + vet + golangci-lint)
-lint: fmt vet golangci-lint
+# Lint (fmt check + clippy)
+lint: 
+	cargo fmt -- --check
+	cargo clippy -- -D warnings
 
 # Update dependencies
 deps:
-	$(GOMOD) download
-	$(GOMOD) tidy
+	cargo update
 
 # Show version info that will be embedded
 version:
@@ -89,17 +70,16 @@ version:
 help:
 	@echo "Available targets:"
 	@echo "  all              - Run lint, test, and build"
-	@echo "  build            - Build the binary to bin/"
-	@echo "  static           - Build static binary for containers"
+	@echo "  build            - Build the release binary"
+	@echo "  static           - Build static binary for containers (musl)"
 	@echo "  test             - Run unit tests"
 	@echo "  test-integration - Run integration tests (requires Docker)"
-	@echo "  install          - Install to GOPATH/bin"
+	@echo "  install          - Install to cargo bin"
 	@echo "  clean            - Remove build artifacts"
 	@echo "  docker           - Build Docker image"
 	@echo "  fmt              - Format code"
-	@echo "  vet              - Run go vet"
-	@echo "  golangci-lint    - Run golangci-lint"
-	@echo "  lint             - Run fmt, vet, and golangci-lint"
+	@echo "  clippy           - Run clippy linter"
+	@echo "  lint             - Run fmt check and clippy"
 	@echo "  deps             - Update dependencies"
 	@echo "  version          - Show version info"
 	@echo "  help             - Show this help"
