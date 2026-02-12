@@ -1,8 +1,10 @@
-.PHONY: build test clean docker install test-integration generate-certs fmt vet lint all
+.PHONY: build test clean docker install test-integration generate-certs fmt vet lint all build-fips build-both
 
 # Binary name
 BINARY_NAME := pem2jks
 BINARY_PATH := bin/$(BINARY_NAME)
+BINARY_FIPS_NAME := pem2jks-fips
+BINARY_FIPS_PATH := bin/$(BINARY_FIPS_NAME)
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -31,10 +33,23 @@ build:
 	@mkdir -p bin
 	$(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/pem2jks
 
+# Build FIPS binary
+build-fips:
+	@mkdir -p bin
+	$(GOBUILD) -tags=fips -ldflags="$(LDFLAGS)" -o $(BINARY_FIPS_PATH) ./cmd/pem2jks
+
+# Build both standard and FIPS binaries
+build-both: build build-fips
+
 # Build static binary (for containers)
 static:
 	@mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux $(GOBUILD) -ldflags="$(LDFLAGS)" -o $(BINARY_PATH) ./cmd/pem2jks
+
+# Build static FIPS binary (for containers)
+static-fips:
+	@mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux $(GOBUILD) -tags=fips -ldflags="$(LDFLAGS)" -o $(BINARY_FIPS_PATH) ./cmd/pem2jks
 
 # Run unit tests
 test:
@@ -89,8 +104,11 @@ version:
 help:
 	@echo "Available targets:"
 	@echo "  all              - Run lint, test, and build"
-	@echo "  build            - Build the binary to bin/"
-	@echo "  static           - Build static binary for containers"
+	@echo "  build            - Build the standard binary to bin/"
+	@echo "  build-fips       - Build the FIPS binary to bin/"
+	@echo "  build-both       - Build both standard and FIPS binaries"
+	@echo "  static           - Build static standard binary for containers"
+	@echo "  static-fips      - Build static FIPS binary for containers"
 	@echo "  test             - Run unit tests"
 	@echo "  test-integration - Run integration tests (requires Docker)"
 	@echo "  install          - Install to GOPATH/bin"

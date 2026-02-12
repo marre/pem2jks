@@ -37,7 +37,6 @@ var (
 	inputPassword string
 	format        string
 	inputFile     string
-	fipsMode      bool // FIPS 140-2 compliant mode
 )
 
 func main() {
@@ -50,25 +49,71 @@ func main() {
 var rootCmd = &cobra.Command{
 	Use:   "pem2jks",
 	Short: "Convert PEM certificates to Java KeyStore format",
-	Long: `pem2jks is a tool for converting PEM-encoded certificates and private keys
+	Long: getBuildSpecificLongDescription(),
+	Example: getBuildSpecificExamples(),
+	RunE:          runConvert,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+}
+
+// getBuildSpecificLongDescription returns the long description based on build type
+func getBuildSpecificLongDescription() string {
+	base := `pem2jks is a tool for converting PEM-encoded certificates and private keys
 into Java KeyStore (JKS) or PKCS#12 format.
 
 It is designed for use in Kubernetes environments where certificates are
 typically provided in PEM format (e.g., from cert-manager) but Java
-applications require JKS or PKCS#12 keystores.
+applications require JKS or PKCS#12 keystores.`
+
+	if fipsBuild {
+		return base + `
+
+FIPS 140-2 Build:
+  This is a FIPS 140-2 compliant build. Only PKCS#12 format is supported.
+  PKCS#12 output uses PBES2 with PBKDF2-HMAC-SHA-256 and AES-256-CBC, which are
+  FIPS-approved algorithms. JKS format is not available in FIPS builds.`
+	}
+
+	return base + `
 
 FIPS 140-2 Compliance:
-  For FIPS-compliant keystores, use PKCS#12 format (--format=pkcs12 or --fips).
+  For FIPS-compliant keystores, use PKCS#12 format (--format=pkcs12).
   PKCS#12 output uses PBES2 with PBKDF2-HMAC-SHA-256 and AES-256-CBC, which are
-  FIPS-approved algorithms. JKS format uses SHA-1 and is not FIPS-compliant.`,
-	Example: `  # Create JKS keystore with private key and certificate
-  pem2jks -c tls.crt:tls.key -p changeit -o keystore.jks
+  FIPS-approved algorithms. JKS format uses SHA-1 and is not FIPS-compliant.
+  For a FIPS-only build, use the pem2jks-fips binary.`
+}
 
-  # Create PKCS#12 keystore
+// getBuildSpecificExamples returns examples based on build type
+func getBuildSpecificExamples() string {
+	if fipsBuild {
+		return `  # Create PKCS#12 keystore (FIPS-compliant)
+  pem2jks -c tls.crt:tls.key -p changeit
+
+  # Create PKCS#12 keystore with explicit format
   pem2jks -c tls.crt:tls.key -p changeit -f pkcs12
 
-  # Create FIPS-compliant keystore
-  pem2jks -c tls.crt:tls.key -p changeit --fips
+  # Create keystore with multiple cert/key pairs (not supported in PKCS#12)
+  # Note: PKCS#12 only supports one private key entry
+
+  # Mix private key entry with cert-only entries
+  pem2jks -c tls.crt:tls.key:server --ca ca1.crt:ca1 --ca ca2.crt:ca2 -p changeit
+
+  # Create keystore with certificate chain and CAs
+  pem2jks -c tls.crt:tls.key --ca ca1.crt:root-ca --ca ca2.crt:intermediate -p changeit
+
+  # Create truststore (CA certs only, no private key)
+  pem2jks --ca ca.crt:my-ca -p changeit -o truststore.p12
+
+  # Use environment variable for password
+  export KEYSTORE_PASSWORD=changeit
+  pem2jks -c tls.crt:tls.key`
+	}
+
+	return `  # Create JKS keystore with private key and certificate
+  pem2jks -c tls.crt:tls.key -p changeit -o keystore.jks
+
+  # Create PKCS#12 keystore (FIPS-compliant)
+  pem2jks -c tls.crt:tls.key -p changeit -f pkcs12
 
   # Create keystore with multiple cert/key pairs and custom aliases
   pem2jks -c app1.crt:app1.key:app1 -c app2.crt:app2.key:app2 -p changeit
@@ -88,17 +133,18 @@ FIPS 140-2 Compliance:
 
   # Use environment variable for password
   export KEYSTORE_PASSWORD=changeit
-  pem2jks -c tls.crt:tls.key`,
-	RunE:          runConvert,
-	SilenceUsage:  true,
-	SilenceErrors: true,
+  pem2jks -c tls.crt:tls.key`
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("pem2jks %s (commit: %s, built: %s)\n", Version, GitCommit, BuildDate)
+		fipsTag := ""
+		if fipsBuild {
+			fipsTag = " (FIPS 140-2)"
+		}
+		fmt.Printf("pem2jks %s%s (commit: %s, built: %s)\n", Version, fipsTag, GitCommit, BuildDate)
 	},
 }
 
@@ -112,24 +158,18 @@ func init() {
 	rootCmd.Flags().StringVarP(&password, "password", "p", "", "keystore password (or use KEYSTORE_PASSWORD env)")
 	rootCmd.Flags().StringVar(&passwordFile, "password-file", "", "file containing keystore password")
 	rootCmd.Flags().StringVar(&inputPassword, "input-password", "", "password for input keystore (defaults to --password if not specified)")
-	rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
+	
+	if fipsBuild {
+		// In FIPS build, default to pkcs12 and hide JKS option
+		rootCmd.Flags().StringVarP(&format, "format", "f", "pkcs12", "keystore format: pkcs12 or p12 (JKS not available in FIPS builds)")
+	} else {
+		rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
+	}
+	
 	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
-	rootCmd.Flags().BoolVar(&fipsMode, "fips", false, "enable FIPS 140-2 compliant mode (only PKCS#12 format allowed, or use FIPS_MODE env)")
 }
 
 func runConvert(cmd *cobra.Command, args []string) error {
-	// Check FIPS mode from environment variable if flag not set
-	if !fipsMode {
-		if os.Getenv("FIPS_MODE") == "true" || os.Getenv("FIPS_MODE") == "1" {
-			fipsMode = true
-		}
-	}
-
-	// If FIPS mode is enabled and format is not explicitly set, use pkcs12
-	if fipsMode && !cmd.Flags().Changed("format") {
-		format = "pkcs12"
-	}
-
 	// Normalize and validate format
 	keystoreFormat := strings.ToLower(format)
 	switch keystoreFormat {
@@ -139,16 +179,16 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid format %q (use jks, pkcs12, or p12)", format)
 	}
 
-	// FIPS mode validation
-	if fipsMode {
+	// FIPS build validation
+	if fipsBuild {
 		if keystoreFormat == "jks" {
-			return fmt.Errorf("FIPS mode is enabled: JKS format is not FIPS 140-2 compliant (uses SHA-1). Please use PKCS#12 format with --format=pkcs12")
+			return fmt.Errorf("JKS format is not available in FIPS builds. This is a FIPS 140-2 compliant build that only supports PKCS#12 format")
 		}
-		fmt.Fprintln(os.Stderr, "INFO: FIPS 140-2 mode enabled - using PKCS#12 with PBES2 and SHA-256")
+		fmt.Fprintln(os.Stderr, "INFO: FIPS 140-2 build - using PKCS#12 with PBES2 and SHA-256")
 	} else {
-		// Warn when using JKS in non-FIPS mode
+		// Warn when using JKS in non-FIPS builds
 		if keystoreFormat == "jks" {
-			fmt.Fprintln(os.Stderr, "WARNING: JKS format uses SHA-1 and is not FIPS 140-2 compliant. For FIPS compliance, use --format=pkcs12 or enable --fips mode")
+			fmt.Fprintln(os.Stderr, "WARNING: JKS format uses SHA-1 and is not FIPS 140-2 compliant. For FIPS compliance, use --format=pkcs12 or the pem2jks-fips binary")
 		}
 	}
 

@@ -1,7 +1,9 @@
 version: 2
 
 builds:
-  - main: ./cmd/pem2jks
+  # Standard build
+  - id: standard
+    main: ./cmd/pem2jks
     binary: pem2jks
     env:
       - CGO_ENABLED=0
@@ -16,10 +18,38 @@ builds:
       - -X main.Version={{.Version}}
       - -X main.GitCommit={{.ShortCommit}}
       - -X main.BuildDate={{.Date}}
+  
+  # FIPS build
+  - id: fips
+    main: ./cmd/pem2jks
+    binary: pem2jks-fips
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -tags=fips
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.GitCommit={{.ShortCommit}}
+      - -X main.BuildDate={{.Date}}
 
 archives:
-  - formats: binary
+  - id: standard
+    builds:
+      - standard
+    formats: binary
     name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+  - id: fips
+    builds:
+      - fips
+    formats: binary
+    name_template: "{{ .ProjectName }}-fips-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
@@ -50,8 +80,28 @@ sboms:
       - "{{ .ArtifactName }}.sbom.spdx.json"
 
 dockers_v2:
-  - images:
+  # Standard Docker image
+  - id: standard
+    ids:
+      - standard
+    images:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks"
+    tags:
+      - "{{ .Version }}"
+      - "{{ .Major }}.{{ .Minor }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    extra_files:
+      - LICENSE.txt
+  
+  # FIPS Docker image
+  - id: fips
+    ids:
+      - fips
+    images:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pem2jks-fips"
     tags:
       - "{{ .Version }}"
       - "{{ .Major }}.{{ .Minor }}"
