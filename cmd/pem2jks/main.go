@@ -158,14 +158,14 @@ func init() {
 	rootCmd.Flags().StringVarP(&password, "password", "p", "", "keystore password (or use KEYSTORE_PASSWORD env)")
 	rootCmd.Flags().StringVar(&passwordFile, "password-file", "", "file containing keystore password")
 	rootCmd.Flags().StringVar(&inputPassword, "input-password", "", "password for input keystore (defaults to --password if not specified)")
-	
+
 	if fipsBuild {
 		// In FIPS build, default to pkcs12 and hide JKS option
 		rootCmd.Flags().StringVarP(&format, "format", "f", "pkcs12", "keystore format: pkcs12 or p12 (JKS not available in FIPS builds)")
 	} else {
 		rootCmd.Flags().StringVarP(&format, "format", "f", "jks", "keystore format: jks, pkcs12, or p12")
 	}
-	
+
 	rootCmd.Flags().StringVarP(&inputFile, "input", "i", "", "existing keystore file to append to (supports both JKS and PKCS#12)")
 }
 
